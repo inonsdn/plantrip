@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+/*
+ * TripMate design tokens.
+ * Deep navy for text and navigation, teal for actions, coral used sparingly as
+ * an accent, cool light greys for surfaces.
+ */
+@theme {
+  --color-ink: #0f2540;
+  --color-ink-soft: #33507a;
+  --color-canvas: #f5f7fa;
+  --color-surface: #ffffff;
+  --color-line: #e2e8f0;
+  --color-line-strong: #cbd5e1;
+  --color-muted: #64748b;
+  --color-brand: #0d9488;
+  --color-brand-strong: #0f766e;
+  --color-brand-soft: #e6f6f4;
+  --color-accent: #f26a4b;
+  --color-accent-soft: #fef0ec;
+  --color-positive: #0f8f6c;
+  --color-positive-soft: #e7f6f0;
+  --color-negative: #d2482f;
+  --color-negative-soft: #fdeeea;
+
+  /* Extra-small breakpoint so dense grids collapse at 200% zoom. */
+  --breakpoint-xs: 22rem;
+
+  --radius-card: 0.75rem;
+
+  --font-sans: var(--font-thai), ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+/* Bottom navigation and sticky actions must clear the iOS home indicator. */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.mb-safe {
+  margin-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.h-safe-bottom {
+  height: env(safe-area-inset-bottom, 0px);
+}
+
+/* Keep numbers aligned in tables and balance lists. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-sheet-in {
+  animation: sheet-in 160ms ease-out;
+}
