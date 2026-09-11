@@ -106,6 +106,18 @@ export function convertToBaseMinor(
     .toNumber();
 }
 
+/**
+ * PostgREST serialises Postgres `numeric` as a JSON **number**, not a string.
+ * Everything downstream expects a plain decimal string (and calls .trim() on
+ * it), so normalise at the query boundary. Uses Decimal to avoid exponent
+ * notation for very small rates, e.g. 1e-7.
+ */
+export function numericToString(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  return new Decimal(value).toFixed();
+}
+
 export function sumMinor(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0);
 }

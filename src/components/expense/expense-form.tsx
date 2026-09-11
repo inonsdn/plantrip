@@ -129,8 +129,11 @@ export function ExpenseForm({
   }, [currencies, trip.baseCurrency]);
 
   const baseAmountMinor = useMemo(() => {
-    if (!amount.trim()) return 0;
+    // Runs during render, so it must never throw: a malformed amount degrades
+    // to 0 (the field then shows a validation error) rather than blanking the
+    // whole page through the error boundary.
     try {
+      if (!String(amount).trim()) return 0;
       return convertToBaseMinor(amount, currencyCode, exchangeRate, trip.baseCurrency);
     } catch {
       return 0;
