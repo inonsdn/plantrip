@@ -2,12 +2,18 @@
 
 import { createBrowserClient } from '@supabase/ssr';
 import type { Database } from './database.types';
-import { supabaseAnonKey, supabaseUrl } from './env';
+
+export interface SupabaseBrowserConfig {
+  url: string;
+  anonKey: string;
+}
 
 /**
- * Browser client. Uses the anon key only — the service role key must never
- * reach the browser.
+ * Browser client. The config is passed in from a server component rather than
+ * read from `process.env`, so the environment variables do not need a
+ * NEXT_PUBLIC_ prefix. Only the anon key ever reaches the browser — the
+ * service-role key is not used anywhere in this app.
  */
-export function createClient() {
-  return createBrowserClient<Database>(supabaseUrl(), supabaseAnonKey());
+export function createClient({ url, anonKey }: SupabaseBrowserConfig) {
+  return createBrowserClient<Database>(url, anonKey);
 }

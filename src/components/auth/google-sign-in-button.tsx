@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient, type SupabaseBrowserConfig } from '@/lib/supabase/client';
 
 function GoogleMark() {
   return (
@@ -27,7 +27,13 @@ function GoogleMark() {
   );
 }
 
-export function GoogleSignInButton({ next }: { next?: string }) {
+export function GoogleSignInButton({
+  next,
+  config,
+}: {
+  next?: string;
+  config: SupabaseBrowserConfig;
+}) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +41,7 @@ export function GoogleSignInButton({ next }: { next?: string }) {
     setPending(true);
     setError(null);
     try {
-      const supabase = createClient();
+      const supabase = createClient(config);
       const callback = new URL('/auth/callback', window.location.origin);
       if (next) callback.searchParams.set('next', next);
 

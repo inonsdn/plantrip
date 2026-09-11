@@ -3,6 +3,7 @@ import { Plane } from 'lucide-react';
 import { GoogleSignInButton } from '@/components/auth/google-sign-in-button';
 import { getCurrentUser } from '@/lib/auth';
 import { APP_NAME } from '@/lib/branding';
+import { publicSupabaseConfig } from '@/lib/supabase/env';
 
 export const metadata = { title: 'เข้าสู่ระบบ' };
 
@@ -38,7 +39,7 @@ export default async function LoginPage({
         </p>
 
         <div className="mt-6">
-          <GoogleSignInButton next={target} />
+          <GoogleSignInButton next={target} config={publicSupabaseConfig()} />
         </div>
 
         <p className="mt-5 text-xs leading-5 text-muted">

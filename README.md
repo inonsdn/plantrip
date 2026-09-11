@@ -92,8 +92,8 @@ npm run dev
 
 1. Create a project at <https://supabase.com/dashboard>.
 2. Open **Project Settings → API** and copy:
-   - **Project URL** → `NEXT_PUBLIC_SUPABASE_URL`
-   - **anon public** key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - **Project URL** → `SUPABASE_URL`
+   - **anon public** key → `SUPABASE_ANON_KEY`
 3. Leave the **service_role** key where it is. TripMate does not need it (see
    [Security notes](#security-notes)).
 
@@ -162,12 +162,21 @@ paths, so the callback cannot be used as an open redirect.
 
 ## Environment variables
 
-| Variable | Required | Notes |
-| --- | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | yes | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Anon key; safe in the browser because RLS protects every table |
-| `NEXT_PUBLIC_SITE_URL` | yes | Absolute URL of this deployment. Used to render invitation links on the server, so it must match the domain people actually visit |
-| `SUPABASE_SERVICE_ROLE_KEY` | **no** | Not used. Joining a trip runs through a `SECURITY DEFINER` function instead |
+| Variable | Also accepted | Required | Notes |
+| --- | --- | --- | --- |
+| `SUPABASE_URL` | `NEXT_PUBLIC_SUPABASE_URL` | yes | Supabase project URL |
+| `SUPABASE_ANON_KEY` | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Anon key; safe in the browser because RLS protects every table |
+| `SITE_URL` | `NEXT_PUBLIC_SITE_URL` | yes | Absolute URL of this deployment. Used to render invitation links on the server, so it must match the domain people actually visit |
+| `SUPABASE_SERVICE_ROLE_KEY` | — | **no** | Not used. Joining a trip runs through a `SECURITY DEFINER` function instead |
+
+**No `NEXT_PUBLIC_` prefix is needed.** Only one component talks to Supabase
+from the browser — the Google sign-in button — and the sign-in page hands it the
+URL and anon key as props. Everything else runs on the server. Both naming
+conventions are read (`NEXT_PUBLIC_*` wins if both are set), so either works.
+
+These are read from the server and the proxy (Edge) bundle, where Next.js inlines
+them at build time: **changing a value on Vercel requires a redeploy**, not just a
+restart.
 
 `.env.example` holds placeholders only; never commit real values.
 
@@ -233,17 +242,17 @@ trip.
    <https://vercel.com/new>. Vercel detects Next.js automatically.
 2. Add the environment variables for **Production**, **Preview** and
    **Development**:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `NEXT_PUBLIC_SITE_URL` = `https://<your-app>.vercel.app`
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+   - `SITE_URL` = `https://<your-app>.vercel.app`
 3. Deploy.
 4. Go back to **Supabase → Authentication → URL Configuration** and add the real
    Vercel URL to **Site URL** and **Redirect URLs**
    (`https://<your-app>.vercel.app/auth/callback`).
 5. Add the same origin to the Google OAuth client's **Authorised JavaScript
    origins**.
-6. Redeploy if you changed `NEXT_PUBLIC_SITE_URL` after the first deploy — it is
-   inlined at build time.
+6. Redeploy after changing any of these variables — they are inlined at build
+   time, so a saved change does not reach a running deployment on its own.
 7. Verify on the deployed URL: sign in with Google, create a trip, copy the
    invitation link, open it in a different browser profile with a second Google
    account, add expenses from both accounts, and check the settlement page.
@@ -278,7 +287,8 @@ elsewhere.
 - **Email addresses are never exposed.** Other members only ever see the display
   name and avatar stored on `profiles` / `trip_members`.
 - **No service-role key.** The browser and the server both use the anon key, so
-  there is no elevated credential to leak.
+  there is no elevated credential to leak. The anon key reaches the browser only
+  as a prop on the sign-in page; no other client bundle references it.
 - **Invitation tokens** are 24 random bytes, base64url-encoded, and rotating one
   invalidates the old link immediately.
 
