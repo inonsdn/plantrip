@@ -136,6 +136,17 @@ for f in supabase/migrations/*.sql; do
 done
 ```
 
+**Option D — let Claude Code apply them.** `.mcp.json` in this repo configures
+Supabase's hosted MCP server. Run Claude Code locally (not in a cloud session —
+the OAuth step needs a browser), then:
+
+```bash
+claude /mcp     # select "supabase", then Authenticate
+```
+
+Once connected, Claude can run the migrations against the project directly.
+Delete `.mcp.json` if you would rather not have the server configured.
+
 ## Google OAuth
 
 Two different callback URLs are involved, and they go in different places.
