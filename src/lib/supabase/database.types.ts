@@ -212,6 +212,14 @@ export type Database = {
         Args: { p_trip_id: string };
         Returns: undefined;
       };
+      add_trip_member: {
+        Args: { p_trip_id: string; p_display_name: string };
+        Returns: string;
+      };
+      claim_trip_member: {
+        Args: { p_placeholder_id: string; p_joined_member_id: string };
+        Returns: undefined;
+      };
       save_expense: {
         Args: { p_payload: Record<string, unknown> };
         Returns: string;

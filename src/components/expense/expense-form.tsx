@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox, Field, Select, TextArea, TextInput } from '@/components/ui/field';
-import { MemberAvatar } from '@/components/ui/avatar';
 import { useToast } from '@/components/ui/toast';
 import { CATEGORY_LIST } from '@/lib/categories';
 import { COMMON_CURRENCIES } from '@/lib/currencies';
@@ -19,6 +18,7 @@ import { SplitEditor, useSplitPreview } from './split-editor';
 
 const LAST_CURRENCY_KEY = 'tripmate:last-currency';
 const LAST_PAYER_KEY = 'tripmate:last-payer';
+const NO_PAYER = '__none__';
 
 function readDeviceMemory(key: string, tripId: string): string | null {
   if (typeof window === 'undefined') return null;
@@ -96,10 +96,6 @@ export function ExpenseForm({
   const [category, setCategory] = useState(expense?.category ?? 'other');
   const [categoryTouched, setCategoryTouched] = useState(isEdit);
   const [expenseDate, setExpenseDate] = useState(expense?.expenseDate ?? todayDateOnly());
-  const [tripDay, setTripDay] = useState<number | null>(
-    expense ? expense.tripDay : tripDayFor(todayDateOnly(), trip.startDate),
-  );
-  const [tripDayTouched, setTripDayTouched] = useState(isEdit);
   const [currencyCode, setCurrencyCode] = useState(() => {
     if (expense) return expense.currencyCode;
     const remembered = readDeviceMemory(LAST_CURRENCY_KEY, trip.id);
@@ -181,7 +177,15 @@ export function ExpenseForm({
 
   function handleDateChange(value: string) {
     setExpenseDate(value);
-    if (!tripDayTouched) setTripDay(tripDayFor(value, trip.startDate));
+  }
+
+  function handleCurrencyChange(next: string) {
+    setCurrencyCode(next);
+    if (next === trip.baseCurrency) {
+      setExchangeRate('1');
+      return;
+    }
+    setExchangeRate(currencies.find((currency) => currency.code === next)?.rate ?? '1');
   }
 
   function handleMethodChange(next: SplitMethod) {
@@ -201,7 +205,7 @@ export function ExpenseForm({
   }
 
   function handlePayerChange(value: string) {
-    if (value === '__none__') {
+    if (value === NO_PAYER) {
       setPayerMemberId(null);
       setExcludeFromSettlement(true);
       return;
@@ -209,15 +213,11 @@ export function ExpenseForm({
     setPayerMemberId(value);
   }
 
-  const dayOptions = useMemo(() => {
-    if (!trip.startDate || !trip.endDate) return [];
-    const days: number[] = [];
-    const start = new Date(`${trip.startDate}T00:00:00`);
-    const end = new Date(`${trip.endDate}T00:00:00`);
-    const total = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
-    for (let day = 1; day <= Math.min(total, 60); day += 1) days.push(day);
-    return days;
-  }, [trip.startDate, trip.endDate]);
+  // Derived from the date now that the manual day picker is gone.
+  const tripDay = useMemo(
+    () => tripDayFor(expenseDate, trip.startDate),
+    [expenseDate, trip.startDate],
+  );
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -290,11 +290,23 @@ export function ExpenseForm({
 
   return (
     <form id="expense-form" onSubmit={handleSubmit} className="space-y-4" noValidate>
-      <Field label="จำนวนเงิน" htmlFor="amount" error={fieldError.amount} required>
+      {/* 1. หน่วยและจำนวนเงิน */}
+      <Field label="หน่วยและจำนวนเงิน" htmlFor="amount" error={fieldError.amount} required>
         <div className="flex items-stretch gap-2">
-          <span className="inline-flex min-h-11 shrink-0 items-center rounded-lg border border-line-strong bg-canvas px-3 text-sm font-semibold text-ink-soft">
-            {currencyCode}
-          </span>
+          <div className="w-28 shrink-0">
+            <Select
+              aria-label="สกุลเงิน"
+              value={currencyCode}
+              onChange={(event) => handleCurrencyChange(event.target.value)}
+              className="px-2"
+            >
+              {currencyOptions.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.code}
+                </option>
+              ))}
+            </Select>
+          </div>
           <TextInput
             id="amount"
             data-autofocus
@@ -307,14 +319,30 @@ export function ExpenseForm({
             className="tabular text-lg font-semibold"
           />
         </div>
-        {currencyCode !== trip.baseCurrency && baseAmountMinor > 0 ? (
-          <p className="mt-1.5 text-sm text-ink-soft">
-            ≈ {formatMoney(baseAmountMinor, trip.baseCurrency)}{' '}
-            <span className="text-muted">(อัตรา {exchangeRate})</span>
-          </p>
-        ) : null}
       </Field>
 
+      {currencyCode !== trip.baseCurrency ? (
+        <Field
+          label="อัตราแลกเปลี่ยน"
+          htmlFor="exchangeRate"
+          error={fieldError.exchangeRate}
+          hint={
+            baseAmountMinor > 0
+              ? `${amount || '0'} ${currencyCode} = ${formatMoney(baseAmountMinor, trip.baseCurrency)}`
+              : `1 ${currencyCode} = ? ${trip.baseCurrency}`
+          }
+        >
+          <TextInput
+            id="exchangeRate"
+            value={exchangeRate}
+            onChange={(event) => setExchangeRate(event.target.value)}
+            inputMode="decimal"
+            className="tabular"
+          />
+        </Field>
+      ) : null}
+
+      {/* 2. รายละเอียด */}
       <Field label="รายละเอียด" htmlFor="description" error={fieldError.description} required>
         <TextInput
           id="description"
@@ -326,10 +354,11 @@ export function ExpenseForm({
         />
       </Field>
 
-      <Field label="ใครจ่าย" htmlFor="payer" error={fieldError.payerMemberId}>
+      {/* 3. คนจ่าย */}
+      <Field label="คนจ่าย" htmlFor="payer" error={fieldError.payerMemberId}>
         <Select
           id="payer"
-          value={payerMemberId ?? '__none__'}
+          value={payerMemberId ?? NO_PAYER}
           onChange={(event) => handlePayerChange(event.target.value)}
         >
           {members.map((member) => (
@@ -338,81 +367,41 @@ export function ExpenseForm({
               {member.isMe ? ' (ฉัน)' : ''}
             </option>
           ))}
-          <option value="__none__">ทุกคนจ่ายเอง (ไม่มีผู้จ่ายหลัก)</option>
+          <option value={NO_PAYER}>ทุกคนจ่ายเอง (ไม่มีผู้จ่ายหลัก)</option>
         </Select>
       </Field>
 
-      {showAdvanced ? (
-        <div className="space-y-1.5">
-          <p className="text-sm font-medium text-ink">หารกับใคร</p>
-          <SplitEditor
-            members={members}
-            participantIds={participantIds}
-            onToggleParticipant={toggleParticipant}
-            onSelectOnly={selectOnly}
-            onSelectAll={selectAllMembers}
-            onClearAll={clearParticipants}
-            method={splitMethod}
-            onMethodChange={handleMethodChange}
-            values={splitValues}
-            onValueChange={(memberId, value) =>
-              setSplitValues((current) => ({ ...current, [memberId]: value }))
-            }
-            baseCurrency={trip.baseCurrency}
-            totalMinor={baseAmountMinor}
-            preview={preview}
-          />
+      {/* 4. หารกับใคร / สัดส่วน */}
+      <div className="space-y-1.5">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-sm font-medium text-ink">หารกับใคร / สัดส่วน</p>
+          {perPersonHint ? <p className="text-xs text-muted">{perPersonHint}</p> : null}
         </div>
-      ) : (
-        <div className="space-y-1.5">
-          <div className="flex items-baseline justify-between gap-2">
-            <p className="text-sm font-medium text-ink">หารกับใคร</p>
-            {perPersonHint && splitMethod === 'equal' ? (
-              <p className="text-xs text-muted">{perPersonHint}</p>
-            ) : null}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {members.map((member) => {
-              const selected = participantIds.includes(member.id);
-              return (
-                <button
-                  key={member.id}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() =>
-                    splitMethod === 'personal' ? selectOnly(member.id) : toggleParticipant(member.id)
-                  }
-                  className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg border px-2.5 text-sm transition-colors ${
-                    selected
-                      ? 'border-brand bg-brand-soft font-semibold text-brand-strong'
-                      : 'border-line-strong bg-surface text-muted'
-                  }`}
-                >
-                  <MemberAvatar name={member.displayName} avatarUrl={member.avatarUrl} size="sm" dimmed={!selected} />
-                  <span className="max-w-24 truncate">{member.displayName}</span>
-                </button>
-              );
-            })}
-          </div>
-          {splitMethod !== 'equal' ? (
-            <p className="text-xs text-muted">
-              วิธีหารปัจจุบัน: <span className="font-medium text-ink-soft">ไม่ใช่การหารเท่ากัน</span> —
-              เปิด “รายละเอียดเพิ่มเติม” เพื่อตรวจสอบ
-            </p>
-          ) : null}
-          {preview.error ? (
-            <p role="alert" className="text-sm text-negative">
-              {preview.error}
-            </p>
-          ) : null}
-          {fieldError.participants ? (
-            <p role="alert" className="text-sm text-negative">
-              {fieldError.participants}
-            </p>
-          ) : null}
-        </div>
-      )}
+        <SplitEditor
+          members={members}
+          participantIds={participantIds}
+          onToggleParticipant={toggleParticipant}
+          onSelectOnly={selectOnly}
+          onSelectAll={selectAllMembers}
+          onClearAll={clearParticipants}
+          method={splitMethod}
+          onMethodChange={handleMethodChange}
+          values={splitValues}
+          onValueChange={(memberId, value) =>
+            setSplitValues((current) => ({ ...current, [memberId]: value }))
+          }
+          baseCurrency={trip.baseCurrency}
+          totalMinor={baseAmountMinor}
+          preview={preview}
+        />
+        {fieldError.participants ? (
+          <p role="alert" className="text-sm text-negative">
+            {fieldError.participants}
+          </p>
+        ) : null}
+      </div>
 
+      {/* 5. เพิ่มเติม */}
       <div className="rounded-lg border border-line">
         <button
           type="button"
@@ -420,7 +409,7 @@ export function ExpenseForm({
           aria-expanded={showAdvanced}
           className="flex min-h-11 w-full items-center justify-between gap-2 px-3 text-sm font-medium text-ink-soft hover:bg-canvas"
         >
-          รายละเอียดเพิ่มเติม
+          เพิ่มเติม
           {showAdvanced ? (
             <ChevronUp aria-hidden className="size-4" />
           ) : (
@@ -447,81 +436,19 @@ export function ExpenseForm({
               </Select>
             </Field>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="วันที่ใช้จ่าย" htmlFor="expenseDate" error={fieldError.expenseDate}>
-                <TextInput
-                  id="expenseDate"
-                  type="date"
-                  value={expenseDate}
-                  onChange={(event) => handleDateChange(event.target.value)}
-                />
-              </Field>
-
-              <Field label="วันของทริป" htmlFor="tripDay">
-                <Select
-                  id="tripDay"
-                  value={tripDay === null ? '' : String(tripDay)}
-                  onChange={(event) => {
-                    setTripDayTouched(true);
-                    setTripDay(event.target.value === '' ? null : Number(event.target.value));
-                  }}
-                >
-                  <option value="">ไม่ระบุ</option>
-                  <option value="0">ก่อนเดินทาง</option>
-                  {dayOptions.map((day) => (
-                    <option key={day} value={day}>
-                      {tripDayLabel(day)}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="สกุลเงิน" htmlFor="currency">
-                <Select
-                  id="currency"
-                  value={currencyCode}
-                  onChange={(event) => {
-                    const next = event.target.value;
-                    setCurrencyCode(next);
-                    const known = currencies.find((currency) => currency.code === next);
-                    setExchangeRate(next === trip.baseCurrency ? '1' : known?.rate ?? '1');
-                  }}
-                >
-                  {currencyOptions.map((option) => (
-                    <option key={option.code} value={option.code}>
-                      {option.label}
-                      {option.inTrip ? '' : ' — เพิ่มใหม่'}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-
-              <Field
-                label="อัตราแลกเปลี่ยน"
-                htmlFor="exchangeRate"
-                error={fieldError.exchangeRate}
-                hint={`1 ${currencyCode} = ? ${trip.baseCurrency}`}
-              >
-                <TextInput
-                  id="exchangeRate"
-                  value={currencyCode === trip.baseCurrency ? '1' : exchangeRate}
-                  onChange={(event) => setExchangeRate(event.target.value)}
-                  inputMode="decimal"
-                  disabled={currencyCode === trip.baseCurrency}
-                  className="tabular"
-                />
-              </Field>
-            </div>
-
-            <Checkbox
-              checked={excludeFromSettlement}
-              disabled={payerMemberId === null}
-              onChange={(event) => setExcludeFromSettlement(event.target.checked)}
-              label="ไม่นำรายการนี้ไปคำนวณยอดที่ต้องโอน"
-              hint="ยอดนี้จะยังนับรวมในยอดรวมทริป หมวดหมู่ รายวัน และยอดของแต่ละคน แต่จะไม่ทำให้ใครเป็นหนี้ใคร เหมาะกับค่าใช้จ่ายที่เคลียร์กันไปแล้ว หรือรายการที่ทุกคนจ่ายเอง"
-            />
+            <Field
+              label="วันที่"
+              htmlFor="expenseDate"
+              error={fieldError.expenseDate}
+              hint={tripDay === null ? undefined : tripDayLabel(tripDay)}
+            >
+              <TextInput
+                id="expenseDate"
+                type="date"
+                value={expenseDate}
+                onChange={(event) => handleDateChange(event.target.value)}
+              />
+            </Field>
 
             <Field label="บันทึกเพิ่มเติม" htmlFor="notes" error={fieldError.notes}>
               <TextArea
@@ -532,6 +459,14 @@ export function ExpenseForm({
                 placeholder="เช่น จ่ายผ่านบัตรเครดิตของนนท์"
               />
             </Field>
+
+            <Checkbox
+              checked={excludeFromSettlement}
+              disabled={payerMemberId === null}
+              onChange={(event) => setExcludeFromSettlement(event.target.checked)}
+              label="ไม่นำรายการนี้ไปคำนวณยอดที่ต้องโอน"
+              hint="ยอดนี้จะยังนับรวมในยอดรวมทริป หมวดหมู่ รายวัน และยอดของแต่ละคน แต่จะไม่ทำให้ใครเป็นหนี้ใคร เหมาะกับค่าใช้จ่ายที่เคลียร์กันไปแล้ว หรือรายการที่ทุกคนจ่ายเอง"
+            />
           </div>
         ) : null}
       </div>
