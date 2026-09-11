@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { createSupabaseServerClient } from '../supabase/server';
 import { getTripContext } from '../queries/trips';
+import { z } from 'zod';
 import { fieldErrors, renameMemberSchema } from '../validation';
 import { fail, friendlyError, ok, type ActionResult } from './result';
 
@@ -31,6 +32,61 @@ export async function renameMemberAction(
     .eq('trip_id', tripId);
 
   if (error) return fail(friendlyError(error, 'เปลี่ยนชื่อไม่สำเร็จ'));
+
+  revalidatePath(`/trips/${tripId}`, 'layout');
+  return ok(undefined);
+}
+
+const addMemberSchema = z.object({
+  tripId: z.string().uuid(),
+  displayName: z.string().trim().min(1, 'กรุณากรอกชื่อ').max(60, 'ชื่อยาวเกินไป'),
+});
+
+/**
+ * Adds a member who has no account yet. Any active member may do this — it is
+ * often needed mid-trip while recording an expense. Removing a member stays
+ * owner-only.
+ */
+export async function addMemberAction(
+  input: unknown,
+): Promise<ActionResult<{ memberId: string }>> {
+  const parsed = addMemberSchema.safeParse(input);
+  if (!parsed.success) return fail('ข้อมูลสมาชิกไม่ถูกต้อง', fieldErrors(parsed.error));
+  const value = parsed.data;
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.rpc('add_trip_member', {
+    p_trip_id: value.tripId,
+    p_display_name: value.displayName,
+  });
+
+  if (error || !data) return fail(friendlyError(error, 'เพิ่มสมาชิกไม่สำเร็จ'));
+
+  revalidatePath(`/trips/${value.tripId}`, 'layout');
+  return ok({ memberId: data });
+}
+
+/**
+ * Owner-only: links a name that was added before someone joined to the account
+ * they joined with, so the expenses already recorded against that name become
+ * theirs. Optional — leaving the two seats separate is a valid choice.
+ */
+export async function claimMemberAction(
+  tripId: string,
+  placeholderId: string,
+  joinedMemberId: string,
+): Promise<ActionResult> {
+  const context = await getTripContext(tripId);
+  if (!context) return fail('ไม่พบทริปนี้ หรือคุณไม่มีสิทธิ์เข้าถึง');
+  if (!context.isOwner) return fail('เฉพาะเจ้าของทริปเท่านั้นที่จับคู่สมาชิกได้');
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.rpc('claim_trip_member', {
+    p_placeholder_id: placeholderId,
+    p_joined_member_id: joinedMemberId,
+  });
+
+  if (error) return fail(friendlyError(error, 'จับคู่สมาชิกไม่สำเร็จ'));
 
   revalidatePath(`/trips/${tripId}`, 'layout');
   return ok(undefined);

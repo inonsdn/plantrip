@@ -39,15 +39,18 @@ export function ErrorState({
   title = 'โหลดข้อมูลไม่สำเร็จ',
   description,
   action,
+  details,
 }: {
   title?: string;
   description?: string;
   action?: ReactNode;
+  details?: ReactNode;
 }) {
   return (
     <div className="rounded-xl border border-negative/30 bg-negative-soft px-5 py-6 text-center">
       <p className="text-base font-semibold text-ink">{title}</p>
       {description ? <p className="mt-1 text-sm text-ink-soft">{description}</p> : null}
+      {details}
       {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
     </div>
   );

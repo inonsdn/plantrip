@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Coins, DoorOpen, Pencil, Trash2, UserMinus } from 'lucide-react';
+import { Coins, DoorOpen, Link2, Pencil, Trash2, UserMinus, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -12,6 +12,8 @@ import { Sheet } from '@/components/ui/sheet';
 import { useToast } from '@/components/ui/toast';
 import { COMMON_CURRENCIES } from '@/lib/currencies';
 import {
+  addMemberAction,
+  claimMemberAction,
   leaveTripAction,
   memberUsageAction,
   removeMemberAction,
@@ -36,8 +38,53 @@ export function MembersPanel({ context }: { context: TripContext }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [currencyOpen, setCurrencyOpen] = useState(false);
+  const [newMemberName, setNewMemberName] = useState('');
+  const [claiming, setClaiming] = useState<TripMemberView | null>(null);
+  const [claimChoice, setClaimChoice] = useState('');
 
   const { trip, members, isOwner, currentMember } = context;
+
+  // Seats added by hand that no account has taken over yet.
+  const placeholders = members.filter((member) => member.userId === null);
+
+  function submitNewMember(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = newMemberName.trim();
+    if (!name) return;
+    startTransition(async () => {
+      const result = await addMemberAction({ tripId: trip.id, displayName: name });
+      if (!result.ok) {
+        showToast({ message: result.error, tone: 'error' });
+        return;
+      }
+      setNewMemberName('');
+      showToast({ message: `เพิ่ม ${name} เข้าทริปแล้ว`, tone: 'success' });
+      router.refresh();
+    });
+  }
+
+  function startClaim(member: TripMemberView) {
+    setClaiming(member);
+    setClaimChoice('');
+  }
+
+  function submitClaim() {
+    if (!claiming || !claimChoice) {
+      setClaiming(null);
+      return;
+    }
+    const joined = claiming;
+    startTransition(async () => {
+      const result = await claimMemberAction(trip.id, claimChoice, joined.id);
+      setClaiming(null);
+      if (!result.ok) {
+        showToast({ message: result.error, tone: 'error' });
+        return;
+      }
+      showToast({ message: 'จับคู่สมาชิกเรียบร้อย', tone: 'success' });
+      router.refresh();
+    });
+  }
 
   function startRename(member: TripMemberView) {
     setRenaming(member);
@@ -179,7 +226,11 @@ export function MembersPanel({ context }: { context: TripContext }) {
                     {member.isMe ? <span className="text-muted"> (ฉัน)</span> : null}
                   </p>
                   <p className="text-xs text-muted">
-                    {member.role === 'owner' ? 'เจ้าของทริป' : 'สมาชิก'}
+                    {member.role === 'owner'
+                      ? 'เจ้าของทริป'
+                      : member.userId === null
+                        ? 'ยังไม่ได้เชื่อมบัญชี'
+                        : 'สมาชิก'}
                   </p>
                 </div>
                 <div className="ml-auto flex shrink-0 gap-1">
@@ -187,6 +238,15 @@ export function MembersPanel({ context }: { context: TripContext }) {
                     <Button type="button" variant="ghost" size="sm" onClick={() => startRename(member)}>
                       <Pencil aria-hidden className="size-4" />
                       <span className="sr-only sm:not-sr-only">เปลี่ยนชื่อ</span>
+                    </Button>
+                  ) : null}
+                  {isOwner &&
+                  member.userId !== null &&
+                  member.role !== 'owner' &&
+                  placeholders.length > 0 ? (
+                    <Button type="button" variant="secondary" size="sm" onClick={() => startClaim(member)}>
+                      <Link2 aria-hidden className="size-4" />
+                      <span className="sr-only sm:not-sr-only">จับคู่</span>
                     </Button>
                   ) : null}
                   {isOwner && !member.isMe && member.role !== 'owner' ? (
@@ -209,6 +269,37 @@ export function MembersPanel({ context }: { context: TripContext }) {
               — ประวัติค่าใช้จ่ายของพวกเขายังถูกเก็บไว้
             </p>
           ) : null}
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="เพิ่มสมาชิกโดยไม่ต้องเชิญ"
+          description="ใส่ชื่อไว้ก่อนได้ แล้วค่อยส่งลิงก์เชิญทีหลัง"
+          icon={<UserPlus aria-hidden className="size-4" />}
+        />
+        <CardBody>
+          <form onSubmit={submitNewMember} className="flex flex-wrap items-end gap-2">
+            <div className="min-w-40 flex-1">
+              <Field label="ชื่อที่จะแสดงในทริป" htmlFor="new-member">
+                <TextInput
+                  id="new-member"
+                  value={newMemberName}
+                  onChange={(event) => setNewMemberName(event.target.value)}
+                  placeholder="เช่น ตาล"
+                  maxLength={60}
+                />
+              </Field>
+            </div>
+            <Button type="submit" disabled={pending || newMemberName.trim() === ''}>
+              <UserPlus aria-hidden className="size-4" />
+              เพิ่มสมาชิก
+            </Button>
+          </form>
+          <p className="mt-2 text-xs leading-5 text-muted">
+            หารค่าใช้จ่ายกับชื่อนี้ได้ทันที ถ้าภายหลังเจ้าตัวเข้าร่วมผ่านลิงก์เชิญ
+            เจ้าของทริปกดปุ่ม “จับคู่” เพื่อยกประวัติทั้งหมดให้บัญชีของเขาได้
+          </p>
         </CardBody>
       </Card>
 
@@ -361,6 +452,45 @@ export function MembersPanel({ context }: { context: TripContext }) {
             </Button>
           </div>
         </form>
+      </Sheet>
+
+      <Sheet
+        open={claiming !== null}
+        onClose={() => setClaiming(null)}
+        title="จับคู่กับชื่อที่มีอยู่แล้ว"
+        description={
+          claiming
+            ? `เลือกชื่อที่ ${claiming.displayName} ใช้อยู่ก่อนเข้าร่วมทริป จะไม่เลือกก็ได้`
+            : undefined
+        }
+      >
+        <Field
+          label="ชื่อเดิมในทริป"
+          htmlFor="claim-choice"
+          hint="ประวัติค่าใช้จ่ายของชื่อที่เลือกจะกลายเป็นของบัญชีนี้ และที่นั่งที่สร้างตอนเข้าร่วมจะถูกปิด"
+        >
+          <Select
+            id="claim-choice"
+            data-autofocus
+            value={claimChoice}
+            onChange={(event) => setClaimChoice(event.target.value)}
+          >
+            <option value="">ไม่จับคู่</option>
+            {placeholders.map((member) => (
+              <option key={member.id} value={member.id}>
+                {member.displayName}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="secondary" onClick={() => setClaiming(null)} disabled={pending}>
+            ยกเลิก
+          </Button>
+          <Button type="button" onClick={submitClaim} disabled={pending || claimChoice === ''}>
+            จับคู่
+          </Button>
+        </div>
       </Sheet>
 
       <ConfirmDialog

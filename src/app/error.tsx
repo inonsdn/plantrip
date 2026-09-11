@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/ui/states';
+import { ErrorDetails } from '@/components/ui/error-details';
 
 export default function GlobalError({
   error,
@@ -20,6 +21,7 @@ export default function GlobalError({
       <ErrorState
         title="เกิดข้อผิดพลาด"
         description="ระบบไม่สามารถแสดงหน้านี้ได้ กรุณาลองใหม่อีกครั้ง"
+        details={<ErrorDetails error={error} />}
         action={
           <Button type="button" onClick={reset}>
             ลองอีกครั้ง

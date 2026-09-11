@@ -38,6 +38,9 @@ Thai; code, schema and this document are in English.
 - **One-link invitations.** `/join/<token>` adds a signed-in visitor to the trip
   with no approval step. The owner can rotate the token; existing members keep
   their access.
+- **Members without accounts.** Add someone by name and split with them straight
+  away — no invitation needed. If they join later, the owner can link the name
+  to their account and the recorded history follows, or leave the two separate.
 - **Fast expense entry.** The default form is amount → description → payer →
   who it is split with → save. Everything else sits behind
   “รายละเอียดเพิ่มเติม”.
@@ -108,6 +111,7 @@ order:
 | `20240101000100_rls.sql` | Authorization helper functions and every RLS policy |
 | `20240101000200_functions.sql` | `create_trip`, `trip_preview_by_token`, `join_trip_by_token`, `regenerate_invite_token`, `remove_trip_member`, `leave_trip`, `delete_trip` |
 | `20240101000300_save_expense.sql` | `save_expense` — writes an expense and its splits atomically |
+| `20240101000400_manual_members.sql` | `add_trip_member` (a seat for someone with no account) and `claim_trip_member` (owner links that seat to an account once they join) |
 
 **Option A — Supabase CLI (recommended):**
 
