@@ -1,6 +1,6 @@
 import 'server-only';
 import { createSupabaseServerClient } from '../supabase/server';
-import { toMinorUnits } from '../money';
+import { numericToString, toMinorUnits } from '../money';
 import type { ExpenseSplitView, ExpenseView, SettlementView } from '../types';
 
 /** All live expenses of a trip, with their splits, newest first. */
@@ -29,7 +29,7 @@ export async function listExpenses(
     list.push({
       memberId: split.member_id,
       splitMethod: split.split_method,
-      shareValue: split.share_value,
+      shareValue: split.share_value === null ? null : numericToString(split.share_value),
       amountMinor: toMinorUnits(split.amount_base, baseCurrency),
     });
     splitsByExpense.set(split.expense_id, list);
@@ -41,9 +41,9 @@ export async function listExpenses(
     category: expense.category,
     expenseDate: expense.expense_date,
     tripDay: expense.trip_day,
-    originalAmount: expense.original_amount,
+    originalAmount: numericToString(expense.original_amount),
     currencyCode: expense.currency_code,
-    exchangeRate: expense.exchange_rate,
+    exchangeRate: numericToString(expense.exchange_rate),
     baseAmountMinor: toMinorUnits(expense.base_amount, baseCurrency),
     payerMemberId: expense.payer_member_id,
     includedInSettlement: expense.included_in_settlement,

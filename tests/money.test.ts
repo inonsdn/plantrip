@@ -5,6 +5,7 @@ import {
   currencyDecimals,
   formatMoney,
   fromMinorUnits,
+  numericToString,
   toMinorUnits,
 } from '@/lib/money';
 
@@ -79,5 +80,41 @@ describe('allocate', () => {
   it('honours weights', () => {
     expect(allocate(400, [2, 1, 1])).toEqual([200, 100, 100]);
     expect(allocate(100, [50, 50])).toEqual([50, 50]);
+  });
+});
+
+describe('numericToString', () => {
+  // PostgREST serialises Postgres `numeric` as a JSON number, so every value
+  // read from the database arrives as a number even where the column holds a
+  // fixed-point decimal. Anything treating one as text (.trim(), .replace())
+  // throws "x.trim is not a function" at render time.
+  it('converts the numbers PostgREST actually sends', () => {
+    expect(numericToString(14040)).toBe('14040');
+    expect(numericToString(96.5)).toBe('96.5');
+    expect(numericToString(26)).toBe('26');
+    expect(numericToString(0)).toBe('0');
+  });
+
+  it('passes strings through untouched', () => {
+    expect(numericToString('540.00')).toBe('540.00');
+    expect(numericToString('26.00000000')).toBe('26.00000000');
+  });
+
+  it('never produces exponent notation, which Decimal would reject downstream', () => {
+    expect(numericToString(0.0000001)).toBe('0.0000001');
+    expect(numericToString(1e-8)).toBe('0.00000001');
+    expect(numericToString(1e21)).toBe('1000000000000000000000');
+  });
+
+  it('maps null and undefined to an empty string', () => {
+    expect(numericToString(null)).toBe('');
+    expect(numericToString(undefined)).toBe('');
+  });
+
+  it('produces values the rest of the money pipeline accepts', () => {
+    const amount = numericToString(96.5);
+    const rate = numericToString(26);
+    expect(amount.trim()).toBe('96.5');
+    expect(convertToBaseMinor(amount, 'SGD', rate, 'THB')).toBe(250900);
   });
 });

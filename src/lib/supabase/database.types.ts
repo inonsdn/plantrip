@@ -3,6 +3,13 @@
  * changes (or regenerate with `supabase gen types typescript`).
  */
 
+/**
+ * A Postgres `numeric` column. PostgREST sends these as JSON numbers, so the
+ * runtime type is number even though the column holds a fixed-point decimal.
+ * Pass them through numericToString() before treating one as text.
+ */
+export type DbNumeric = string | number;
+
 export type TripMemberRole = 'owner' | 'member';
 export type SplitMethodDb = 'equal' | 'exact' | 'percent' | 'shares' | 'personal';
 export type SettlementStatusDb = 'pending' | 'paid' | 'cancelled';
@@ -34,7 +41,7 @@ export type TripCurrencyRow = {
   id: string;
   trip_id: string;
   currency_code: string;
-  default_exchange_rate: string;
+  default_exchange_rate: DbNumeric;
   created_at: string;
   updated_at: string;
 }
@@ -58,10 +65,10 @@ export type ExpenseRow = {
   category: string;
   expense_date: string;
   trip_day: number | null;
-  original_amount: string;
+  original_amount: DbNumeric;
   currency_code: string;
-  exchange_rate: string;
-  base_amount: string;
+  exchange_rate: DbNumeric;
+  base_amount: DbNumeric;
   payer_member_id: string | null;
   included_in_settlement: boolean;
   notes: string | null;
@@ -78,8 +85,8 @@ export type ExpenseSplitRow = {
   trip_id: string;
   member_id: string;
   split_method: SplitMethodDb;
-  share_value: string | null;
-  amount_base: string;
+  share_value: DbNumeric | null;
+  amount_base: DbNumeric;
   created_at: string;
   updated_at: string;
 }
@@ -89,7 +96,7 @@ export type SettlementRow = {
   trip_id: string;
   from_member_id: string;
   to_member_id: string;
-  amount_base: string;
+  amount_base: DbNumeric;
   status: SettlementStatusDb;
   paid_at: string | null;
   note: string | null;

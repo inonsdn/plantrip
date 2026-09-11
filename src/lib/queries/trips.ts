@@ -1,7 +1,7 @@
 import 'server-only';
 import { cache } from 'react';
 import { createSupabaseServerClient } from '../supabase/server';
-import { toMinorUnits } from '../money';
+import { numericToString, toMinorUnits } from '../money';
 import type { TripContext, TripMemberView, TripSummaryView } from '../types';
 import type { TripMemberRow } from '../supabase/database.types';
 
@@ -73,7 +73,7 @@ export const getTripContext = cache(async function getTripContext(
 
   const currencies = (currencyRows ?? []).map((currency) => ({
     code: currency.currency_code,
-    rate: currency.default_exchange_rate,
+    rate: numericToString(currency.default_exchange_rate),
   }));
 
   if (!currencies.some((currency) => currency.code === trip.base_currency)) {
