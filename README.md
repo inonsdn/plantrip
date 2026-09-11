@@ -117,8 +117,16 @@ supabase link --project-ref <your-project-ref>
 supabase db push
 ```
 
-**Option B — SQL editor:** paste each file into the Supabase SQL editor and run
-them in order.
+**Option B — SQL editor, no tooling to install:**
+
+```bash
+npm run db:bundle     # writes supabase/migrations.bundle.sql
+```
+
+Paste that one file into the Supabase SQL editor and run it. It wraps every
+migration in a single transaction, so a fresh project either gets the whole
+schema or nothing. The bundle is generated on demand and git-ignored — the
+migrations stay the only source of truth.
 
 **Option C — psql:**
 
