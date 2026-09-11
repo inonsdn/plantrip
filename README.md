@@ -138,27 +138,37 @@ done
 
 ## Google OAuth
 
+Two different callback URLs are involved, and they go in different places.
+Neither one belongs in Vercel — Vercel only gets the environment variables.
+
+```
+/login  →  Google consent screen
+             redirect_uri = https://<project-ref>.supabase.co/auth/v1/callback   (1)
+        →  Supabase receives the code
+        →  https://<your-app>.vercel.app/auth/callback?code=…&next=…             (2)
+        →  the page the user originally asked for
+```
+
 1. In **Google Cloud Console → APIs & Services → Credentials**, create an
    *OAuth client ID* of type **Web application**.
-2. **Authorised JavaScript origins**
-   - `http://localhost:3000`
-   - `https://<your-app>.vercel.app`
-3. **Authorised redirect URIs** — this must be the *Supabase* callback, not your
+2. **Authorised redirect URIs** — URL (1), the *Supabase* callback, not your
    app's:
    - `https://<your-project-ref>.supabase.co/auth/v1/callback`
-4. Copy the client ID and secret into **Supabase → Authentication → Providers →
+
+   *Authorised JavaScript origins* can be left empty: the browser never calls
+   Google's JS SDK, it is a plain top-level redirect from `supabase.co`.
+3. Copy the client ID and secret into **Supabase → Authentication → Providers →
    Google**, and enable the provider.
-5. In **Supabase → Authentication → URL Configuration** set:
+4. In **Supabase → Authentication → URL Configuration** set:
    - **Site URL**: `http://localhost:3000` while developing,
      `https://<your-app>.vercel.app` in production.
-   - **Redirect URLs** (add every environment you use):
+   - **Redirect URLs** — URL (2), your *app's* callback, one per environment:
      - `http://localhost:3000/auth/callback`
      - `https://<your-app>.vercel.app/auth/callback`
      - `https://<your-app>-*.vercel.app/auth/callback` for preview deployments
 
-The sign-in flow is: `/login` → Google → Supabase → `/auth/callback?code=…&next=…`
-→ the page the user originally asked for. `next` is restricted to same-origin
-paths, so the callback cannot be used as an open redirect.
+`next` is restricted to same-origin paths, so the callback cannot be used as an
+open redirect.
 
 ## Environment variables
 
