@@ -225,6 +225,10 @@ export function SettlementPanel({
                     const key = itemKey(item);
                     const paid = item.settlementStatus === 'paid';
                     const claimed = item.settlementStatus === 'pending';
+                    // The label describes the viewer's own side of the row;
+                    // whether pressing it settles or merely claims is decided
+                    // separately by item.canConfirm.
+                    const viewerIsReceiver = item.toMemberId === context.currentMember.id;
                     const from = memberById.get(item.fromMemberId);
                     const to = memberById.get(item.toMemberId);
                     return (
@@ -287,7 +291,7 @@ export function SettlementPanel({
                             ) : null
                           ) : (
                             <Button type="button" size="sm" onClick={() => markTransferred(item)}>
-                              {item.canConfirm ? 'ได้รับแล้ว' : 'โอนแล้ว'}
+                              {viewerIsReceiver ? 'ได้รับแล้ว' : 'โอนแล้ว'}
                             </Button>
                           )}
                         </div>
