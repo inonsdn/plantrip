@@ -35,19 +35,27 @@ export default async function TripSettlementPage({
     .map((debt) => {
       const expense = expenseById.get(debt.expenseId);
       if (!expense) return null;
+      // A pending claim counts as live: it blocks a second claim and shows as
+      // "waiting for the receiver", but balances still ignore it.
       const settlement = settlements.find(
         (candidate) =>
-          candidate.status === 'paid' &&
+          candidate.status !== 'cancelled' &&
           candidate.expenseId === debt.expenseId &&
           candidate.fromMemberId === debt.fromMemberId &&
           candidate.toMemberId === debt.toMemberId,
       );
+      const receiver = context.allMembers.find((member) => member.id === debt.toMemberId);
       return {
         ...debt,
         description: expense.description,
         category: expense.category,
         expenseDate: expense.expenseDate,
         settlementId: settlement?.id ?? null,
+        settlementStatus: settlement?.status === 'paid' ? ('paid' as const) : settlement ? ('pending' as const) : null,
+        // Only the receiver confirms money arrived; a name with no account
+        // behind it needs someone else to keep its books.
+        canConfirm: receiver ? receiver.userId === null || receiver.isMe : false,
+        receiverName: receiver?.displayName ?? '',
       };
     })
     .filter((item) => item !== null)
