@@ -53,10 +53,12 @@ Thai; code, schema and this document are in English.
 - **Multi-currency.** Each expense stores its own original amount, currency,
   exchange rate and converted base amount. Changing a trip's default rate never
   rewrites past expenses.
-- **Settlement, item by item.** Every expense's debts are listed separately —
-  “แพรว → นนท์ ฿2,000 · ตั๋วกระเช้าภูเขา” — so each can be marked paid on its
-  own rather than as one netted lump sum. Settled rows collapse out of the way
-  and every payment can be undone.
+- **Settlement, item by item, confirmed by the receiver.** Every expense's
+  debts are listed separately — “แพรว → นนท์ ฿2,000 · ตั๋วกระเช้าภูเขา” — so each
+  can be settled on its own rather than as one netted lump sum. Pressing
+  “โอนแล้ว” on money owed to someone else only files a claim; nothing counts as
+  settled until the person being paid confirms it arrived. Every payment can be
+  undone.
 - **Mobile first.** Bottom navigation with safe-area padding, bottom sheets
   instead of dialogs, 44px touch targets, no horizontal scrolling from 188px up.
 
@@ -114,6 +116,7 @@ order:
 | `20240101000300_save_expense.sql` | `save_expense` — writes an expense and its splits atomically |
 | `20240101000400_manual_members.sql` | `add_trip_member` (a seat for someone with no account) and `claim_trip_member` (owner links that seat to an account once they join) |
 | `20240101000500_expense_settlements.sql` | `settlements.expense_id`, so a payment can record which single expense it cleared |
+| `20240101000600_settlement_confirmation.sql` | Trigger enforcing that only the member being paid can mark a debt settled; anyone else's press records a `pending` claim |
 
 **Option A — Supabase CLI (recommended):**
 
@@ -304,6 +307,12 @@ elsewhere.
   split amount from the trip's own member list before writing, and
   `save_expense()` refuses to write unless the splits add up to the expense
   total.
+- **Only the receiver can confirm a payment.** `guard_settlement_confirmation`
+  rejects any attempt to set a settlement to `paid` by anyone other than the
+  member being paid, so a debtor cannot declare their own transfer received by
+  calling the API directly. Balances count only `paid` rows, so a pending claim
+  moves no money. A member added by name has no account to confirm with, so
+  their rows stay settleable by whoever keeps the books.
 - **Owner-only operations** (rename the trip, rotate the invitation link, remove
   a member, delete the trip) check ownership inside the database function.
 - **Members can only rename themselves.** A trigger rejects any attempt by a

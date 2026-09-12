@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, CheckCheck, CheckCircle2, History, RefreshCw, Undo2 } from 'lucide-react';
+import { ArrowRight, CheckCheck, CheckCircle2, Clock, History, RefreshCw, Undo2 } from 'lucide-react';
 import { CategoryChip } from '@/components/ui/category-icon';
 import { formatDateWithWeekday } from '@/lib/format';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ import { formatDateTime } from '@/lib/format';
 import { formatMoney, fromMinorUnits } from '@/lib/money';
 import {
   cancelSettlementAction,
+  confirmSettlementAction,
   recordSettlementAction,
   restoreSettlementAction,
   settleAllAction,
@@ -32,8 +33,13 @@ export interface SettlementItem {
   description: string;
   category: string;
   expenseDate: string;
-  /** Id of the payment that cleared this row, when it has been settled. */
+  /** Id of the live payment record for this row, paid or merely claimed. */
   settlementId: string | null;
+  /** null = nothing recorded, 'pending' = claimed but not yet confirmed. */
+  settlementStatus: 'pending' | 'paid' | null;
+  /** Whether the viewer is the one entitled to confirm receipt. */
+  canConfirm: boolean;
+  receiverName: string;
 }
 
 export function SettlementPanel({
@@ -59,41 +65,74 @@ export function SettlementPanel({
 
   const currency = context.trip.baseCurrency;
   const memberById = new Map(context.allMembers.map((member) => [member.id, member]));
-  const unpaid = items.filter((item) => item.settlementId === null);
+  const unpaid = items.filter((item) => item.settlementStatus !== 'paid');
   const paidCount = items.length - unpaid.length;
   const unpaidCount = unpaid.length;
   const unpaidTotalMinor = unpaid.reduce((total, item) => total + item.amountMinor, 0);
   const visibleItems = onlyUnpaid ? unpaid : items;
+  // Claims still waiting on a confirmation belong in the list above, not here.
+  const history = settlements.filter((settlement) => settlement.status !== 'pending');
   const name = (memberId: string) => memberById.get(memberId)?.displayName ?? 'สมาชิกที่ออกไปแล้ว';
 
   function itemKey(item: SettlementItem) {
     return `${item.expenseId}:${item.fromMemberId}:${item.toMemberId}`;
   }
 
-  function toggleItem(item: SettlementItem) {
+  function runOnItem(
+    item: SettlementItem,
+    action: () => Promise<{ ok: boolean; error?: string }>,
+    successMessage: string,
+  ) {
     setBusyKey(itemKey(item));
     startTransition(async () => {
-      const result = item.settlementId
-        ? await cancelSettlementAction(context.trip.id, item.settlementId)
-        : await recordSettlementAction({
-            tripId: context.trip.id,
-            expenseId: item.expenseId,
-            fromMemberId: item.fromMemberId,
-            toMemberId: item.toMemberId,
-            amount: fromMinorUnits(item.amountMinor, currency),
-            note: item.description,
-          });
+      const result = await action();
       setBusyKey(null);
       showToast({
-        message: result.ok
-          ? item.settlementId
-            ? 'ยกเลิกการโอนรายการนี้แล้ว'
-            : `บันทึกแล้ว: ${name(item.fromMemberId)} โอนให้ ${name(item.toMemberId)}`
-          : result.error,
+        message: result.ok ? successMessage : (result.error ?? 'เกิดข้อผิดพลาด'),
         tone: result.ok ? 'success' : 'error',
       });
       if (result.ok) router.refresh();
     });
+  }
+
+  /** Records the transfer: outright when the viewer is the receiver, otherwise
+      as a claim the receiver still has to confirm. */
+  function markTransferred(item: SettlementItem) {
+    runOnItem(
+      item,
+      () =>
+        recordSettlementAction({
+          tripId: context.trip.id,
+          expenseId: item.expenseId,
+          fromMemberId: item.fromMemberId,
+          toMemberId: item.toMemberId,
+          amount: fromMinorUnits(item.amountMinor, currency),
+          note: item.description,
+        }),
+      item.canConfirm
+        ? `บันทึกแล้ว: ${name(item.fromMemberId)} โอนให้ ${name(item.toMemberId)}`
+        : `แจ้งแล้ว รอ ${item.receiverName} ยืนยันว่าได้รับ`,
+    );
+  }
+
+  function confirmReceipt(item: SettlementItem) {
+    if (!item.settlementId) return;
+    const settlementId = item.settlementId;
+    runOnItem(
+      item,
+      () => confirmSettlementAction(context.trip.id, settlementId),
+      'ยืนยันว่าได้รับเงินแล้ว',
+    );
+  }
+
+  function undoItem(item: SettlementItem) {
+    if (!item.settlementId) return;
+    const settlementId = item.settlementId;
+    runOnItem(
+      item,
+      () => cancelSettlementAction(context.trip.id, settlementId),
+      item.settlementStatus === 'pending' ? 'ยกเลิกการแจ้งโอนแล้ว' : 'ยกเลิกการโอนรายการนี้แล้ว',
+    );
   }
 
   function settleEverything() {
@@ -184,7 +223,8 @@ export function SettlementPanel({
                 <ul className="divide-y divide-line">
                   {visibleItems.map((item) => {
                     const key = itemKey(item);
-                    const paid = item.settlementId !== null;
+                    const paid = item.settlementStatus === 'paid';
+                    const claimed = item.settlementStatus === 'pending';
                     const from = memberById.get(item.fromMemberId);
                     const to = memberById.get(item.toMemberId);
                     return (
@@ -206,6 +246,21 @@ export function SettlementPanel({
                             <span className="truncate">{item.description}</span>
                             <span>{formatDateWithWeekday(item.expenseDate)}</span>
                           </div>
+                          {claimed ? (
+                            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-accent">
+                              <span className="inline-flex items-center gap-1">
+                                <Clock aria-hidden className="size-3.5" />
+                                แจ้งโอนแล้ว · รอ {item.receiverName} ยืนยันว่าได้รับ
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => undoItem(item)}
+                                className="text-muted underline underline-offset-2"
+                              >
+                                ยกเลิกการแจ้ง
+                              </button>
+                            </p>
+                          ) : null}
                         </div>
 
                         <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -216,19 +271,25 @@ export function SettlementPanel({
                           >
                             {formatMoney(item.amountMinor, currency)}
                           </span>
-                          <Button
-                            type="button"
-                            variant={paid ? 'secondary' : 'primary'}
-                            size="sm"
-                            onClick={() => toggleItem(item)}
-                            disabled={pending && busyKey === key}
-                          >
-                            {pending && busyKey === key
-                              ? 'กำลังบันทึก…'
-                              : paid
-                                ? 'เลิกทำ'
-                                : 'โอนแล้ว'}
-                          </Button>
+                          {pending && busyKey === key ? (
+                            <Button type="button" variant="secondary" size="sm" disabled>
+                              กำลังบันทึก…
+                            </Button>
+                          ) : paid ? (
+                            <Button type="button" variant="secondary" size="sm" onClick={() => undoItem(item)}>
+                              เลิกทำ
+                            </Button>
+                          ) : claimed ? (
+                            item.canConfirm ? (
+                              <Button type="button" size="sm" onClick={() => confirmReceipt(item)}>
+                                ยืนยันว่าได้รับ
+                              </Button>
+                            ) : null
+                          ) : (
+                            <Button type="button" size="sm" onClick={() => markTransferred(item)}>
+                              {item.canConfirm ? 'ได้รับแล้ว' : 'โอนแล้ว'}
+                            </Button>
+                          )}
                         </div>
                       </li>
                     );
@@ -294,7 +355,8 @@ export function SettlementPanel({
             <span className="tabular font-medium text-ink">
               {formatMoney(unpaidTotalMinor, currency)}
             </span>{' '}
-            จะถูกบันทึกว่าโอนแล้ว ยกเลิกทีละรายการภายหลังได้
+            จะถูกบันทึก โดยรายการที่คุณเป็นผู้รับเงินจะถูกยืนยันทันที
+            ส่วนรายการของคนอื่นจะเป็นการแจ้งโอน รอเจ้าของรายการยืนยันอีกที
           </>
         }
         confirmLabel="บันทึกทั้งหมด"
@@ -309,12 +371,12 @@ export function SettlementPanel({
           icon={<History aria-hidden className="size-4" />}
           description="รายการที่ถูกยกเลิกจะไม่ถูกนำไปคำนวณ แต่ยังเก็บไว้เป็นประวัติ"
         />
-        <CardBody className={settlements.length === 0 ? '' : 'py-0'}>
-          {settlements.length === 0 ? (
+        <CardBody className={history.length === 0 ? '' : 'py-0'}>
+          {history.length === 0 ? (
             <p className="py-2 text-sm text-muted">ยังไม่มีการบันทึกการโอน</p>
           ) : (
             <ul className="divide-y divide-line">
-              {settlements.map((settlement) => (
+              {history.map((settlement) => (
                 <li key={settlement.id} className="flex flex-wrap items-center gap-3 py-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-ink">
