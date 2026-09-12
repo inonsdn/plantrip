@@ -59,6 +59,9 @@ export type TripMemberRow = {
 }
 
 export type ExpenseRow = {
+  itinerary_day_id: string | null;
+  itinerary_origin_stop_id: string | null;
+  itinerary_destination_stop_id: string | null;
   id: string;
   trip_id: string;
   description: string;
@@ -90,6 +93,55 @@ export type ExpenseSplitRow = {
   created_at: string;
   updated_at: string;
 }
+
+export type TransportModeDb = 'driving' | 'transit' | 'walking';
+
+export type ItineraryDayRow = {
+  id: string;
+  trip_id: string;
+  local_date: string;
+  start_local_time: string;
+  time_zone: string;
+  default_transport_mode: TransportModeDb;
+  version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ItineraryStopRow = {
+  id: string;
+  day_id: string;
+  trip_id: string;
+  position: number;
+  place_provider: string;
+  place_id: string | null;
+  name: string;
+  address: string | null;
+  latitude: DbNumeric;
+  longitude: DbNumeric;
+  visit_duration_minutes: number;
+  not_before_local_time: string | null;
+  enabled: boolean;
+  notes: string | null;
+  created_by: string | null;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ItineraryLegPreferenceRow = {
+  id: string;
+  day_id: string;
+  trip_id: string;
+  origin_stop_id: string;
+  destination_stop_id: string;
+  transport_mode: TransportModeDb;
+  selected_route_reference: string | null;
+  manual_duration_minutes: number | null;
+  visible_on_map: boolean;
+  created_at: string;
+  updated_at: string;
+};
 
 export type SettlementRow = {
   id: string;
@@ -171,6 +223,33 @@ export type Database = {
         Update: Partial<Omit<ExpenseSplitRow, 'id'>>;
         Relationships: [];
       };
+      itinerary_days: {
+        Row: ItineraryDayRow;
+        Insert: Pick<ItineraryDayRow, 'trip_id' | 'local_date'> &
+          Partial<Omit<ItineraryDayRow, 'trip_id' | 'local_date'>>;
+        Update: Partial<Omit<ItineraryDayRow, 'id'>>;
+        Relationships: [];
+      };
+      itinerary_stops: {
+        Row: ItineraryStopRow;
+        Insert: Pick<
+          ItineraryStopRow,
+          'day_id' | 'trip_id' | 'name' | 'latitude' | 'longitude'
+        > &
+          Partial<Omit<ItineraryStopRow, 'day_id' | 'trip_id' | 'name'>>;
+        Update: Partial<Omit<ItineraryStopRow, 'id'>>;
+        Relationships: [];
+      };
+      itinerary_leg_preferences: {
+        Row: ItineraryLegPreferenceRow;
+        Insert: Pick<
+          ItineraryLegPreferenceRow,
+          'day_id' | 'trip_id' | 'origin_stop_id' | 'destination_stop_id' | 'transport_mode'
+        > &
+          Partial<Omit<ItineraryLegPreferenceRow, 'day_id' | 'trip_id'>>;
+        Update: Partial<Omit<ItineraryLegPreferenceRow, 'id'>>;
+        Relationships: [];
+      };
       settlements: {
         Row: SettlementRow;
         Insert: Pick<
@@ -229,12 +308,29 @@ export type Database = {
         Args: { p_placeholder_id: string; p_joined_member_id: string };
         Returns: undefined;
       };
+      consume_itinerary_budget: {
+        Args: { p_daily_limit: number };
+        Returns: boolean;
+      };
+      bump_itinerary_day: {
+        Args: { p_day_id: string; p_expected_version?: number | null };
+        Returns: number;
+      };
+      reorder_itinerary_stops: {
+        Args: { p_day_id: string; p_stop_ids: string[]; p_expected_version?: number | null };
+        Returns: number;
+      };
+      move_itinerary_stop: {
+        Args: { p_stop_id: string; p_target_day_id: string; p_expected_version?: number | null };
+        Returns: number;
+      };
       save_expense: {
         Args: { p_payload: Record<string, unknown> };
         Returns: string;
       };
     };
     Enums: {
+      transport_mode: TransportModeDb;
       trip_member_role: TripMemberRole;
       split_method: SplitMethodDb;
       settlement_status: SettlementStatusDb;

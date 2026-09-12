@@ -76,6 +76,11 @@ export const expenseInputSchema = z
     notes: z.string().trim().max(1000, 'บันทึกยาวเกินไป').nullable().optional(),
     splitMethod: z.enum(SPLIT_METHODS),
     participants: z.array(splitParticipantSchema).min(1, 'ต้องเลือกสมาชิกอย่างน้อย 1 คน'),
+    // Optional link back to the itinerary. Only set when the expense is created
+    // from a leg; the database refuses a reference to another trip.
+    itineraryDayId: z.string().uuid().nullable().optional(),
+    itineraryOriginStopId: z.string().uuid().nullable().optional(),
+    itineraryDestinationStopId: z.string().uuid().nullable().optional(),
   })
   .refine((value) => value.payerMemberId !== null || !value.includedInSettlement, {
     message: 'รายการที่ไม่มีผู้จ่ายหลัก ต้องไม่นำไปคำนวณยอดโอน',

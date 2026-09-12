@@ -90,3 +90,23 @@ export interface TripSummaryView {
   totalMinor: number;
   role: TripMemberRole;
 }
+
+/**
+ * Values carried into a new expense from elsewhere in the app (today: a leg of
+ * the itinerary). Everything here is a starting point the person must confirm —
+ * an estimated fare is never saved as an actual amount on its own.
+ */
+export interface ExpensePrefill {
+  description?: string;
+  category?: string;
+  expenseDate?: string;
+  amount?: string;
+  currencyCode?: string;
+  /** True when `amount` came from a provider estimate rather than a receipt. */
+  estimate?: boolean;
+  itinerary?: {
+    dayId: string;
+    originStopId: string | null;
+    destinationStopId: string | null;
+  };
+}

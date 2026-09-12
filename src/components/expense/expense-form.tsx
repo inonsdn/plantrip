@@ -13,7 +13,7 @@ import { convertToBaseMinor, formatMoney, fromMinorUnits } from '@/lib/money';
 import { type SplitMethod } from '@/lib/split';
 import { suggestCategory } from '@/lib/categories';
 import { saveExpenseAction, deleteExpenseAction } from '@/lib/actions/expenses';
-import type { ExpenseView, TripContext } from '@/lib/types';
+import type { ExpensePrefill, ExpenseView, TripContext } from '@/lib/types';
 import { SplitMethodPicker, SplitParticipants, useSplitPreview } from './split-editor';
 
 const LAST_CURRENCY_KEY = 'tripmate:last-currency';
@@ -41,10 +41,13 @@ function writeDeviceMemory(key: string, tripId: string, value: string): void {
 export function ExpenseForm({
   context,
   expense,
+  prefill = null,
   onDone,
 }: {
   context: TripContext;
   expense: ExpenseView | null;
+  /** Starting values carried in from elsewhere; always confirmed before saving. */
+  prefill?: ExpensePrefill | null;
   onDone: () => void;
 }) {
   const router = useRouter();
@@ -63,8 +66,10 @@ export function ExpenseForm({
     );
   }, [context.allMembers, expense]);
 
-  const [amount, setAmount] = useState(expense ? expense.originalAmount : '');
-  const [description, setDescription] = useState(expense?.description ?? '');
+  const [amount, setAmount] = useState(expense ? expense.originalAmount : prefill?.amount ?? '');
+  const [description, setDescription] = useState(
+    expense?.description ?? prefill?.description ?? '',
+  );
   const [payerMemberId, setPayerMemberId] = useState<string | null>(() => {
     if (expense) return expense.payerMemberId;
     const remembered = readDeviceMemory(LAST_PAYER_KEY, trip.id);
@@ -93,19 +98,27 @@ export function ExpenseForm({
         )
       : {},
   );
-  const [category, setCategory] = useState(expense?.category ?? 'other');
-  const [categoryTouched, setCategoryTouched] = useState(isEdit);
-  const [expenseDate, setExpenseDate] = useState(expense?.expenseDate ?? todayDateOnly());
+  const [category, setCategory] = useState(expense?.category ?? prefill?.category ?? 'other');
+  // A prefilled category is a deliberate choice, so typing a description must
+  // not quietly overwrite it.
+  const [categoryTouched, setCategoryTouched] = useState(isEdit || Boolean(prefill?.category));
+  const [expenseDate, setExpenseDate] = useState(
+    expense?.expenseDate ?? prefill?.expenseDate ?? todayDateOnly(),
+  );
   const [currencyCode, setCurrencyCode] = useState(() => {
     if (expense) return expense.currencyCode;
+    if (prefill?.currencyCode) return prefill.currencyCode;
     const remembered = readDeviceMemory(LAST_CURRENCY_KEY, trip.id);
     return remembered ?? trip.baseCurrency;
   });
   const [exchangeRate, setExchangeRate] = useState(() => {
     if (expense) return expense.exchangeRate;
-    const remembered = readDeviceMemory(LAST_CURRENCY_KEY, trip.id) ?? trip.baseCurrency;
-    if (remembered === trip.baseCurrency) return '1';
-    return currencies.find((currency) => currency.code === remembered)?.rate ?? '1';
+    const initial =
+      prefill?.currencyCode ??
+      readDeviceMemory(LAST_CURRENCY_KEY, trip.id) ??
+      trip.baseCurrency;
+    if (initial === trip.baseCurrency) return '1';
+    return currencies.find((currency) => currency.code === initial)?.rate ?? '1';
   });
   const [excludeFromSettlement, setExcludeFromSettlement] = useState(
     expense ? !expense.includedInSettlement : false,
@@ -245,6 +258,13 @@ export function ExpenseForm({
     const input = {
       tripId: trip.id,
       expenseId: expense?.id ?? null,
+      // Recorded once, on the expense itself: later itinerary edits never touch
+      // this row, and deleting the stop only clears the reference.
+      itineraryDayId: expense ? undefined : prefill?.itinerary?.dayId ?? null,
+      itineraryOriginStopId: expense ? undefined : prefill?.itinerary?.originStopId ?? null,
+      itineraryDestinationStopId: expense
+        ? undefined
+        : prefill?.itinerary?.destinationStopId ?? null,
       description: description.trim(),
       category,
       amount: amount.trim(),
@@ -298,6 +318,14 @@ export function ExpenseForm({
 
   return (
     <form id="expense-form" onSubmit={handleSubmit} className="space-y-4" noValidate>
+      {prefill?.itinerary ? (
+        <p className="rounded-lg border border-brand/30 bg-brand-soft px-3 py-2 text-xs leading-5 text-ink">
+          รายการนี้มาจากแผนการเดินทาง
+          {prefill.estimate ? ' ยอดที่กรอกไว้เป็นเพียงประมาณการ' : ''} กรุณายืนยันยอดจริง
+          ผู้จ่าย และการหารก่อนบันทึก
+        </p>
+      ) : null}
+
       {/* 1. หน่วยและจำนวนเงิน */}
       <Field label="หน่วยและจำนวนเงิน" htmlFor="amount" error={fieldError.amount} required>
         <div className="flex items-stretch gap-2">
