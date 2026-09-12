@@ -9,8 +9,8 @@ import {
   buildSeedExpenses,
 } from './fixtures/singapore-trip';
 import { computeTripStats } from '@/lib/trip-stats';
-import { balancesAreZeroSum, computeBalances, simplifyDebts } from '@/lib/settlement';
-import { formatMoney, fromMinorUnits } from '@/lib/money';
+import { balancesAreZeroSum, computeBalances, computeExpenseDebts } from '@/lib/settlement';
+import { fromMinorUnits } from '@/lib/money';
 import type { CalcSettlement } from '@/lib/settlement';
 import { toCalcExpense } from '@/lib/trip-stats';
 
@@ -83,37 +83,50 @@ describe('Singapore demo trip totals', () => {
     expect(spentTotal).toBe(stats.totalMinor);
   });
 
-  it('nets to zero and produces two transfers', () => {
+  it('nets to zero', () => {
     expect(balancesAreZeroSum(stats.balances)).toBe(true);
-    const transfers = simplifyDebts(stats.balances);
-    expect(transfers).toHaveLength(2);
-    expect(
-      transfers.map(
-        (transfer) =>
-          `${transfer.fromMemberId} โอนให้ ${transfer.toMemberId} ${formatMoney(transfer.amountMinor, BASE_CURRENCY)}`,
-      ),
-    ).toEqual(['praew โอนให้ non ฿6,787.99', 'mew โอนให้ non ฿4,091.00']);
   });
 
-  it('clears every balance once both transfers are recorded', () => {
-    const settlements = simplifyDebts(stats.balances).map((transfer) => ({
-      ...transfer,
-      status: 'paid' as const,
-    }));
-    const after = computeBalances(MEMBER_IDS, expenses.map(toCalcExpense), settlements);
+  it('lists each expense debt individually rather than netting them', () => {
+    const debts = computeExpenseDebts(expenses.map(toCalcExpense));
+
+    // The flight and the MRT fares create no debt; the two personal items owe
+    // nobody; the Universal tickets owe only between มิว and แพรว.
+    expect(debts.map((debt) => debt.expenseId)).toEqual([
+      'hotel', 'hotel', 'dinner-day1', 'dinner-day1', 'uss',
+      'lunch-day2', 'lunch-day2', 'dinner-day3', 'dinner-day3', 'drinks', 'drinks',
+    ]);
+
+    const uss = debts.filter((debt) => debt.expenseId === 'uss');
+    expect(uss).toEqual([
+      { expenseId: 'uss', fromMemberId: PRAEW, toMemberId: MEW, amountMinor: 215_800 },
+    ]);
+  });
+
+  it('clears every balance once every item is marked paid', () => {
+    const debts = computeExpenseDebts(expenses.map(toCalcExpense));
+    const after = computeBalances(
+      MEMBER_IDS,
+      expenses.map(toCalcExpense),
+      debts.map((debt) => ({ ...debt, status: 'paid' as const })),
+    );
     expect(after.every((item) => item.netMinor === 0)).toBe(true);
-    expect(simplifyDebts(after)).toEqual([]);
   });
 
-  it('leaves a remaining balance when only one transfer is recorded', () => {
-    const [first] = simplifyDebts(stats.balances);
+  it('leaves the rest outstanding when only one item is marked paid', () => {
+    const debts = computeExpenseDebts(expenses.map(toCalcExpense));
+    const [first, ...rest] = debts;
     const after = computeBalances(MEMBER_IDS, expenses.map(toCalcExpense), [
       { ...first, status: 'paid' },
     ]);
+
     expect(balancesAreZeroSum(after)).toBe(true);
-    expect(simplifyDebts(after)).toEqual([
-      { fromMemberId: MEW, toMemberId: NON, amountMinor: 409_100 },
-    ]);
+    const stillOwed = rest.reduce((total, debt) => total + debt.amountMinor, 0);
+    const outstanding = after.reduce(
+      (total, balance) => total + Math.max(balance.netMinor, 0),
+      0,
+    );
+    expect(outstanding).toBeLessThanOrEqual(stillOwed);
   });
 
   it('splits the shared dinner 2:1:1 and the two-person ticket in half', () => {

@@ -53,9 +53,10 @@ Thai; code, schema and this document are in English.
 - **Multi-currency.** Each expense stores its own original amount, currency,
   exchange rate and converted base amount. Changing a trip's default rate never
   rewrites past expenses.
-- **Settlement.** Net balances plus a debt-simplification pass produce direct
-  instructions (“แพรว โอนให้ นนท์ ฿6,787.99”), with a recorded transfer history
-  that can be undone.
+- **Settlement, item by item.** Every expense's debts are listed separately —
+  “แพรว → นนท์ ฿2,000 · ตั๋วกระเช้าภูเขา” — so each can be marked paid on its
+  own rather than as one netted lump sum. Settled rows collapse out of the way
+  and every payment can be undone.
 - **Mobile first.** Bottom navigation with safe-area padding, bottom sheets
   instead of dialogs, 44px touch targets, no horizontal scrolling from 188px up.
 
@@ -112,6 +113,7 @@ order:
 | `20240101000200_functions.sql` | `create_trip`, `trip_preview_by_token`, `join_trip_by_token`, `regenerate_invite_token`, `remove_trip_member`, `leave_trip`, `delete_trip` |
 | `20240101000300_save_expense.sql` | `save_expense` — writes an expense and its splits atomically |
 | `20240101000400_manual_members.sql` | `add_trip_member` (a seat for someone with no account) and `claim_trip_member` (owner links that seat to an account once they join) |
+| `20240101000500_expense_settlements.sql` | `settlements.expense_id`, so a payment can record which single expense it cleared |
 
 **Option A — Supabase CLI (recommended):**
 
@@ -359,9 +361,10 @@ whole yen for JPY, and so on). Floating point is never used for money.
 3. `computeSplits()` divides that integer among members. Indivisible units are
    handed out by the largest-remainder method, ties broken by member order, so
    the result is deterministic and the parts always add back up to the total.
-4. `computeBalances()` nets what each member paid against what they owe, applies
-   recorded transfers, and `simplifyDebts()` greedily matches the largest
-   creditor with the largest debtor — at most *members − 1* transfers.
+4. `computeBalances()` nets what each member paid against what they owe and
+   applies recorded payments, while `computeExpenseDebts()` lists each expense's
+   debts separately so they can be settled one at a time. Settling every listed
+   row clears every balance exactly, which the tests assert.
 5. The database stores `numeric(16,2)` amounts and `numeric(20,8)` rates; nothing
    is ever stored as a float.
 
@@ -378,8 +381,8 @@ the *next* expense is pre-filled with.
   navigation, so another member's change appears on the next load or refresh.
 - The trip base currency is fixed after creation. Secondary currencies and their
   rates can be added or changed at any time.
-- Debt simplification minimises the number of transfers, which can pair members
-  who never directly owed each other. That is the point, but it can surprise
-  people expecting a literal “who owes whom” list.
+- Settlement lists one row per expense per debtor, so a long trip produces a
+  long list. Nothing is netted across expenses: if two people each paid for
+  something, both debts are listed rather than offset against each other.
 - Soft-deleted trips and expenses stay in the database and are not exposed
   anywhere in the UI; clean-up is a manual database task.

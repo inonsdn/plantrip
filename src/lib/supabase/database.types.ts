@@ -94,6 +94,8 @@ export type ExpenseSplitRow = {
 export type SettlementRow = {
   id: string;
   trip_id: string;
+  /** Set when this payment settles one specific expense. */
+  expense_id: string | null;
   from_member_id: string;
   to_member_id: string;
   amount_base: DbNumeric;

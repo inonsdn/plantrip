@@ -71,6 +71,7 @@ export async function listSettlements(
 
   return (data ?? []).map((settlement) => ({
     id: settlement.id,
+    expenseId: settlement.expense_id,
     fromMemberId: settlement.from_member_id,
     toMemberId: settlement.to_member_id,
     amountMinor: toMinorUnits(settlement.amount_base, baseCurrency),

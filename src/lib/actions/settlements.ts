@@ -35,6 +35,7 @@ export async function recordSettlementAction(input: unknown): Promise<ActionResu
 
   const { error } = await supabase.from('settlements').insert({
     trip_id: value.tripId,
+    expense_id: value.expenseId ?? null,
     from_member_id: value.fromMemberId,
     to_member_id: value.toMemberId,
     amount_base: fromMinorUnits(amountMinor, context.trip.baseCurrency),
@@ -44,7 +45,14 @@ export async function recordSettlementAction(input: unknown): Promise<ActionResu
     created_by: user?.id ?? null,
   });
 
-  if (error) return fail(friendlyError(error, 'บันทึกการโอนไม่สำเร็จ'));
+  if (error) {
+    // The partial unique index rejects a second live payment for the same
+    // expense and pair, which means someone else just marked it paid.
+    if ((error as { code?: string }).code === '23505') {
+      return fail('รายการนี้ถูกบันทึกว่าโอนแล้ว');
+    }
+    return fail(friendlyError(error, 'บันทึกการโอนไม่สำเร็จ'));
+  }
 
   revalidatePath(`/trips/${value.tripId}`, 'layout');
   return ok(undefined);

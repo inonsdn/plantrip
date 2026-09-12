@@ -90,6 +90,8 @@ export type ExpenseInput = z.infer<typeof expenseInputSchema>;
 
 export const settlementInputSchema = z.object({
   tripId: z.string().uuid(),
+  /** Present when settling one specific expense rather than a whole balance. */
+  expenseId: z.string().uuid().nullable().optional(),
   fromMemberId: z.string().uuid(),
   toMemberId: z.string().uuid(),
   amount: money,

@@ -3,6 +3,8 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, CheckCircle2, History, RefreshCw, Undo2 } from 'lucide-react';
+import { CategoryChip } from '@/components/ui/category-icon';
+import { formatDateWithWeekday } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/states';
@@ -15,20 +17,32 @@ import {
   recordSettlementAction,
   restoreSettlementAction,
 } from '@/lib/actions/settlements';
-import type { MemberBalance, Transfer } from '@/lib/settlement';
+import type { MemberBalance } from '@/lib/settlement';
 import type { SettlementView, TripContext } from '@/lib/types';
 import { BalanceBadge } from './balance-badge';
+
+export interface SettlementItem {
+  expenseId: string;
+  fromMemberId: string;
+  toMemberId: string;
+  amountMinor: number;
+  description: string;
+  category: string;
+  expenseDate: string;
+  /** Id of the payment that cleared this row, when it has been settled. */
+  settlementId: string | null;
+}
 
 export function SettlementPanel({
   context,
   balances,
-  transfers,
+  items,
   settlements,
   zeroSum,
 }: {
   context: TripContext;
   balances: MemberBalance[];
-  transfers: Transfer[];
+  items: SettlementItem[];
   settlements: SettlementView[];
   zeroSum: boolean;
 }) {
@@ -37,25 +51,40 @@ export function SettlementPanel({
   const [pending, startTransition] = useTransition();
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
+  const [showPaid, setShowPaid] = useState(false);
+
   const currency = context.trip.baseCurrency;
   const memberById = new Map(context.allMembers.map((member) => [member.id, member]));
+  const unpaid = items.filter((item) => item.settlementId === null);
+  const paidCount = items.length - unpaid.length;
+  const unpaidCount = unpaid.length;
+  const unpaidTotalMinor = unpaid.reduce((total, item) => total + item.amountMinor, 0);
+  const visibleItems = showPaid ? items : unpaid;
   const name = (memberId: string) => memberById.get(memberId)?.displayName ?? 'สมาชิกที่ออกไปแล้ว';
 
-  function markPaid(transfer: Transfer) {
-    const key = `${transfer.fromMemberId}:${transfer.toMemberId}`;
-    setBusyKey(key);
+  function itemKey(item: SettlementItem) {
+    return `${item.expenseId}:${item.fromMemberId}:${item.toMemberId}`;
+  }
+
+  function toggleItem(item: SettlementItem) {
+    setBusyKey(itemKey(item));
     startTransition(async () => {
-      const result = await recordSettlementAction({
-        tripId: context.trip.id,
-        fromMemberId: transfer.fromMemberId,
-        toMemberId: transfer.toMemberId,
-        amount: fromMinorUnits(transfer.amountMinor, currency),
-        note: null,
-      });
+      const result = item.settlementId
+        ? await cancelSettlementAction(context.trip.id, item.settlementId)
+        : await recordSettlementAction({
+            tripId: context.trip.id,
+            expenseId: item.expenseId,
+            fromMemberId: item.fromMemberId,
+            toMemberId: item.toMemberId,
+            amount: fromMinorUnits(item.amountMinor, currency),
+            note: item.description,
+          });
       setBusyKey(null);
       showToast({
         message: result.ok
-          ? `บันทึกแล้ว: ${name(transfer.fromMemberId)} โอนให้ ${name(transfer.toMemberId)}`
+          ? item.settlementId
+            ? 'ยกเลิกการโอนรายการนี้แล้ว'
+            : `บันทึกแล้ว: ${name(item.fromMemberId)} โอนให้ ${name(item.toMemberId)}`
           : result.error,
         tone: result.ok ? 'success' : 'error',
       });
@@ -88,8 +117,8 @@ export function SettlementPanel({
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <Card>
           <CardHeader
-            title="ต้องโอนให้ใครบ้าง"
-            description="ระบบจัดให้จำนวนครั้งการโอนน้อยที่สุด"
+            title="รายการที่ต้องโอน"
+            description="แยกตามค่าใช้จ่ายแต่ละรายการ กดยืนยันทีละรายการได้"
             action={
               <Button type="button" variant="ghost" size="sm" onClick={() => router.refresh()}>
                 <RefreshCw aria-hidden className="size-4" />
@@ -97,47 +126,90 @@ export function SettlementPanel({
               </Button>
             }
           />
-          <CardBody className={transfers.length === 0 ? '' : 'py-0'}>
-            {transfers.length === 0 ? (
+          <CardBody className={items.length === 0 ? '' : 'py-0'}>
+            {items.length === 0 ? (
               <EmptyState
                 icon={<CheckCircle2 aria-hidden className="size-8" />}
-                title="เคลียร์กันหมดแล้ว"
-                description="ไม่มียอดค้างระหว่างสมาชิกในทริปนี้"
+                title="ไม่มีรายการที่ต้องโอน"
+                description="ทุกรายการในทริปนี้ไม่ได้ทำให้ใครเป็นหนี้ใคร หรือเคลียร์กันหมดแล้ว"
               />
             ) : (
-              <ul className="divide-y divide-line">
-                {transfers.map((transfer) => {
-                  const key = `${transfer.fromMemberId}:${transfer.toMemberId}`;
-                  const from = memberById.get(transfer.fromMemberId);
-                  const to = memberById.get(transfer.toMemberId);
-                  return (
-                    <li key={key} className="flex flex-wrap items-center gap-3 py-3">
-                      <div className="flex min-w-0 flex-1 items-center gap-2">
-                        <MemberAvatar name={name(transfer.fromMemberId)} avatarUrl={from?.avatarUrl} size="sm" />
-                        <span className="truncate text-sm font-medium text-ink">
-                          {name(transfer.fromMemberId)}
-                        </span>
-                        <ArrowRight aria-hidden className="size-4 shrink-0 text-muted" />
-                        <MemberAvatar name={name(transfer.toMemberId)} avatarUrl={to?.avatarUrl} size="sm" />
-                        <span className="truncate text-sm font-medium text-ink">
-                          {name(transfer.toMemberId)}
-                        </span>
-                      </div>
-                      <span className="tabular shrink-0 text-base font-semibold text-ink">
-                        {formatMoney(transfer.amountMinor, currency)}
-                      </span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => markPaid(transfer)}
-                        disabled={pending && busyKey === key}
-                      >
-                        {pending && busyKey === key ? 'กำลังบันทึก…' : 'โอนแล้ว'}
-                      </Button>
-                    </li>
-                  );
-                })}
-              </ul>
+              <>
+                {unpaidCount > 0 ? (
+                  <p className="border-b border-line py-2.5 text-sm text-muted">
+                    ยังไม่โอน{' '}
+                    <span className="tabular font-semibold text-ink">{unpaidCount} รายการ</span>{' '}
+                    · รวม{' '}
+                    <span className="tabular font-semibold text-ink">
+                      {formatMoney(unpaidTotalMinor, currency)}
+                    </span>
+                  </p>
+                ) : null}
+
+                <ul className="divide-y divide-line">
+                  {visibleItems.map((item) => {
+                    const key = itemKey(item);
+                    const paid = item.settlementId !== null;
+                    const from = memberById.get(item.fromMemberId);
+                    const to = memberById.get(item.toMemberId);
+                    return (
+                      <li key={key} className="flex items-start gap-3 py-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <MemberAvatar name={name(item.fromMemberId)} avatarUrl={from?.avatarUrl} size="sm" />
+                            <span className={`text-sm font-medium ${paid ? 'text-muted' : 'text-ink'}`}>
+                              {name(item.fromMemberId)}
+                            </span>
+                            <ArrowRight aria-hidden className="size-4 shrink-0 text-muted" />
+                            <MemberAvatar name={name(item.toMemberId)} avatarUrl={to?.avatarUrl} size="sm" />
+                            <span className={`text-sm font-medium ${paid ? 'text-muted' : 'text-ink'}`}>
+                              {name(item.toMemberId)}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                            <CategoryChip category={item.category} />
+                            <span className="truncate">{item.description}</span>
+                            <span>{formatDateWithWeekday(item.expenseDate)}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex shrink-0 flex-col items-end gap-1.5">
+                          <span
+                            className={`tabular text-base font-semibold ${
+                              paid ? 'text-muted line-through' : 'text-ink'
+                            }`}
+                          >
+                            {formatMoney(item.amountMinor, currency)}
+                          </span>
+                          <Button
+                            type="button"
+                            variant={paid ? 'secondary' : 'primary'}
+                            size="sm"
+                            onClick={() => toggleItem(item)}
+                            disabled={pending && busyKey === key}
+                          >
+                            {pending && busyKey === key
+                              ? 'กำลังบันทึก…'
+                              : paid
+                                ? 'เลิกทำ'
+                                : 'โอนแล้ว'}
+                          </Button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                {paidCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowPaid((current) => !current)}
+                    className="w-full border-t border-line py-2.5 text-sm font-medium text-brand-strong"
+                  >
+                    {showPaid ? 'ซ่อนรายการที่โอนแล้ว' : `แสดงรายการที่โอนแล้ว (${paidCount})`}
+                  </button>
+                ) : null}
+              </>
             )}
           </CardBody>
         </Card>

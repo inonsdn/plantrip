@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   balancesAreZeroSum,
   computeBalances,
-  simplifyDebts,
+  computeExpenseDebts,
   type CalcExpense,
   type CalcSettlement,
 } from '@/lib/settlement';
@@ -106,61 +106,6 @@ describe('balances', () => {
   });
 });
 
-describe('debt simplification', () => {
-  it('produces direct instructions, fewest transfers', () => {
-    const balances = computeBalances(MEMBERS, [expense('e1', NON, 30000, MEMBERS)]);
-    const transfers = simplifyDebts(balances);
-    expect(transfers).toHaveLength(2);
-    expect(transfers.every((transfer) => transfer.toMemberId === NON)).toBe(true);
-    expect(transfers.reduce((sum, transfer) => sum + transfer.amountMinor, 0)).toBe(20000);
-  });
-
-  it('collapses a debt chain into a single transfer', () => {
-    // A owes B, B owes C the same amount -> A pays C once.
-    const balances = computeBalances(['a', 'b', 'c'], [
-      { id: '1', payerMemberId: 'b', baseAmountMinor: 1000, includedInSettlement: true, splits: [{ memberId: 'a', amountMinor: 1000 }] },
-      { id: '2', payerMemberId: 'c', baseAmountMinor: 1000, includedInSettlement: true, splits: [{ memberId: 'b', amountMinor: 1000 }] },
-    ]);
-    const transfers = simplifyDebts(balances);
-    expect(transfers).toEqual([{ fromMemberId: 'a', toMemberId: 'c', amountMinor: 1000 }]);
-  });
-
-  it('never exceeds members - 1 transfers and always clears every balance', () => {
-    const balances = computeBalances(MEMBERS, [
-      expense('hotel', NON, 100_00, MEMBERS),
-      expense('tickets', MEW, 777_77, [MEW, PRAEW]),
-      expense('snacks', PRAEW, 10_01, MEMBERS),
-    ]);
-    const transfers = simplifyDebts(balances);
-    expect(transfers.length).toBeLessThanOrEqual(MEMBERS.length - 1);
-
-    const after = computeBalances(
-      MEMBERS,
-      [
-        expense('hotel', NON, 100_00, MEMBERS),
-        expense('tickets', MEW, 777_77, [MEW, PRAEW]),
-        expense('snacks', PRAEW, 10_01, MEMBERS),
-      ],
-      transfers.map((transfer) => ({ ...transfer, status: 'paid' as const })),
-    );
-    expect(after.every((balance) => balance.netMinor === 0)).toBe(true);
-  });
-
-  it('is empty when everyone is square', () => {
-    const balances = computeBalances(MEMBERS, []);
-    expect(simplifyDebts(balances)).toEqual([]);
-  });
-
-  it('is deterministic', () => {
-    const build = () =>
-      computeBalances(MEMBERS, [
-        expense('a', NON, 33_33, MEMBERS),
-        expense('b', MEW, 66_67, MEMBERS),
-      ]);
-    expect(simplifyDebts(build())).toEqual(simplifyDebts(build()));
-  });
-});
-
 describe('editing and deleting an expense', () => {
   const base = [expense('hotel', NON, 90000, MEMBERS), expense('dinner', MEW, 30000, MEMBERS)];
 
@@ -195,5 +140,69 @@ describe('multi-currency trip', () => {
     ]);
     expect(balancesAreZeroSum(balances)).toBe(true);
     expect(net(balances, NON)).toBe(hotel - 104000 - 76500);
+  });
+});
+
+describe('per-expense debts', () => {
+  it('lists one row per member who owes the payer', () => {
+    const debts = computeExpenseDebts([expense('hotel', NON, 30000, MEMBERS)]);
+    expect(debts).toEqual([
+      { expenseId: 'hotel', fromMemberId: MEW, toMemberId: NON, amountMinor: 10000 },
+      { expenseId: 'hotel', fromMemberId: PRAEW, toMemberId: NON, amountMinor: 10000 },
+    ]);
+  });
+
+  it('never bills the payer for their own share', () => {
+    const debts = computeExpenseDebts([expense('lunch', NON, 30000, MEMBERS)]);
+    expect(debts.some((debt) => debt.fromMemberId === NON)).toBe(false);
+  });
+
+  it('keeps each expense separate instead of netting them', () => {
+    // Non pays for one, Mew pays for another: two debts, opposite directions,
+    // where simplifyDebts would collapse them into a single smaller transfer.
+    const debts = computeExpenseDebts([
+      expense('a', NON, 20000, [NON, MEW]),
+      expense('b', MEW, 10000, [NON, MEW]),
+    ]);
+    expect(debts).toEqual([
+      { expenseId: 'a', fromMemberId: MEW, toMemberId: NON, amountMinor: 10000 },
+      { expenseId: 'b', fromMemberId: NON, toMemberId: MEW, amountMinor: 5000 },
+    ]);
+  });
+
+  it('skips expenses excluded from settlement and ones with no payer', () => {
+    expect(computeExpenseDebts([expense('flight', NON, 30000, MEMBERS, false)])).toEqual([]);
+    expect(
+      computeExpenseDebts([
+        {
+          id: 'mrt',
+          payerMemberId: null,
+          baseAmountMinor: 9000,
+          includedInSettlement: false,
+          splits: MEMBERS.map((memberId) => ({ memberId, amountMinor: 3000 })),
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('skips a personal expense, which owes nobody', () => {
+    expect(computeExpenseDebts([expense('dessert', MEW, 4500, [MEW])])).toEqual([]);
+  });
+
+  it('adds up to the same money as the netted balances', () => {
+    const expenses = [
+      expense('hotel', NON, 30000, MEMBERS),
+      expense('tickets', MEW, 77777, [MEW, PRAEW]),
+    ];
+    const debts = computeExpenseDebts(expenses);
+
+    // Settling every row individually must clear everyone, exactly as the
+    // simplified transfers do.
+    const after = computeBalances(
+      MEMBERS,
+      expenses,
+      debts.map((debt) => ({ ...debt, status: 'paid' as const })),
+    );
+    expect(after.every((balance) => balance.netMinor === 0)).toBe(true);
   });
 });
