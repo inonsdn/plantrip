@@ -216,6 +216,16 @@ export function ExpenseForm({
     setPayerMemberId(value);
   }
 
+  // Equal splits give everyone the same amount, so it is shown once next to
+  // the hint rather than repeated inside every member chip.
+  const perPersonHint =
+    splitMethod === 'equal' && baseAmountMinor > 0 && participantIds.length > 0 && !preview.error
+      ? `คนละ ${formatMoney(
+          preview.amountByMember.get(participantIds[0]) ?? 0,
+          trip.baseCurrency,
+        )}`
+      : null;
+
   // Derived from the date now that the manual day picker is gone.
   const tripDay = useMemo(
     () => tripDayFor(expenseDate, trip.startDate),
@@ -395,6 +405,7 @@ export function ExpenseForm({
         baseCurrency={trip.baseCurrency}
         totalMinor={baseAmountMinor}
         preview={preview}
+        perPersonHint={perPersonHint}
       />
       {fieldError.participants ? (
         <p role="alert" className="text-sm text-negative">

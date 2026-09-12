@@ -113,11 +113,27 @@ export function ShareLinkDialog({
   );
 }
 
-export function ShareLinkButton({ onClick, compact = false }: { onClick: () => void; compact?: boolean }) {
+export function ShareLinkButton({
+  onClick,
+  compact = false,
+  iconOnly = false,
+}: {
+  onClick: () => void;
+  compact?: boolean;
+  /** Icon only, with the label kept for screen readers and as a tooltip. */
+  iconOnly?: boolean;
+}) {
   return (
-    <Button type="button" variant="secondary" size={compact ? 'sm' : 'md'} onClick={onClick}>
+    <Button
+      type="button"
+      variant="secondary"
+      size={compact ? 'sm' : 'md'}
+      onClick={onClick}
+      title={iconOnly ? 'แชร์ลิงก์' : undefined}
+      className={iconOnly ? 'w-11 px-0' : ''}
+    >
       <Link2 aria-hidden className="size-4" />
-      แชร์ลิงก์
+      <span className={iconOnly ? 'sr-only' : ''}>แชร์ลิงก์</span>
     </Button>
   );
 }

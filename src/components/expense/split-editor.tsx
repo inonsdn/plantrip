@@ -63,14 +63,19 @@ export function SplitMethodPicker({
   onMethodChange: (method: SplitMethod) => void;
 }) {
   return (
-    <div role="group" aria-label="วิธีหาร" className="flex flex-wrap gap-1.5">
+    // One line that scrolls sideways rather than wrapping to three rows.
+    <div
+      role="group"
+      aria-label="วิธีหาร"
+      className="-mx-0.5 flex gap-1.5 overflow-x-auto px-0.5 pb-1"
+    >
       {SPLIT_METHODS.map((option) => (
         <button
           key={option}
           type="button"
           aria-pressed={method === option}
           onClick={() => onMethodChange(option)}
-          className={`min-h-8 rounded-lg border px-2 text-xs font-medium transition-colors ${
+          className={`min-h-8 shrink-0 rounded-lg border px-2 text-xs font-medium whitespace-nowrap transition-colors ${
             method === option
               ? 'border-brand bg-brand-soft text-brand-strong'
               : 'border-line-strong bg-surface text-ink-soft hover:bg-canvas'
@@ -96,6 +101,7 @@ export function SplitParticipants({
   baseCurrency,
   totalMinor,
   preview,
+  perPersonHint,
 }: {
   members: TripMemberView[];
   participantIds: string[];
@@ -109,13 +115,17 @@ export function SplitParticipants({
   baseCurrency: string;
   totalMinor: number;
   preview: SplitPreview;
+  perPersonHint?: string | null;
 }) {
   const allSelected = participantIds.length === members.length;
   const needsValue = method === 'exact' || method === 'percent' || method === 'shares';
 
   return (
     <div className="space-y-2">
-      <p className="text-xs leading-5 text-muted">{SPLIT_METHOD_HINTS[method]}</p>
+      <p className="text-xs leading-5 text-muted">
+        {SPLIT_METHOD_HINTS[method]}
+        {perPersonHint ? <span className="text-ink-soft"> · {perPersonHint}</span> : null}
+      </p>
 
       {method !== 'personal' ? (
         <div className="flex flex-wrap gap-3">
@@ -187,7 +197,6 @@ export function SplitParticipants({
         <div className="flex flex-wrap gap-2">
           {members.map((member) => {
             const selected = participantIds.includes(member.id);
-            const amount = preview.amountByMember.get(member.id);
             return (
               <label
                 key={member.id}
@@ -212,11 +221,6 @@ export function SplitParticipants({
                 >
                   {member.displayName}
                 </span>
-                {selected && amount !== undefined && totalMinor > 0 ? (
-                  <span className="tabular shrink-0 text-xs text-ink-soft">
-                    {formatMoney(amount, baseCurrency)}
-                  </span>
-                ) : null}
               </label>
             );
           })}
