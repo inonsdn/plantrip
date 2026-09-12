@@ -18,7 +18,6 @@ import {
   cancelSettlementAction,
   confirmSettlementAction,
   recordSettlementAction,
-  restoreSettlementAction,
   settleAllAction,
 } from '@/lib/actions/settlements';
 import type { MemberBalance } from '@/lib/settlement';
@@ -149,20 +148,13 @@ export function SettlementPanel({
     });
   }
 
-  function toggleSettlement(settlement: SettlementView) {
+  function removeSettlement(settlement: SettlementView) {
     setBusyKey(settlement.id);
     startTransition(async () => {
-      const result =
-        settlement.status === 'paid'
-          ? await cancelSettlementAction(context.trip.id, settlement.id)
-          : await restoreSettlementAction(context.trip.id, settlement.id);
+      const result = await cancelSettlementAction(context.trip.id, settlement.id);
       setBusyKey(null);
       showToast({
-        message: result.ok
-          ? settlement.status === 'paid'
-            ? 'ยกเลิกรายการโอนแล้ว'
-            : 'กู้คืนรายการโอนแล้ว'
-          : result.error,
+        message: result.ok ? 'ลบรายการโอนแล้ว' : result.error,
         tone: result.ok ? 'success' : 'error',
       });
       if (result.ok) router.refresh();
@@ -373,7 +365,7 @@ export function SettlementPanel({
         <CardHeader
           title="ประวัติการโอน"
           icon={<History aria-hidden className="size-4" />}
-          description="รายการที่ถูกยกเลิกจะไม่ถูกนำไปคำนวณ แต่ยังเก็บไว้เป็นประวัติ"
+          description="เฉพาะรายการที่ยืนยันแล้ว กดเลิกทำเพื่อลบออก"
         />
         <CardBody className={history.length === 0 ? '' : 'py-0'}>
           {history.length === 0 ? (
@@ -392,18 +384,17 @@ export function SettlementPanel({
                     </p>
                     <p className="text-xs text-muted">
                       {formatDateTime(settlement.paidAt ?? settlement.createdAt)}
-                      {settlement.status === 'cancelled' ? ' · ยกเลิกแล้ว' : ''}
                     </p>
                   </div>
                   <Button
                     type="button"
-                    variant={settlement.status === 'paid' ? 'secondary' : 'primary'}
+                    variant="secondary"
                     size="sm"
-                    onClick={() => toggleSettlement(settlement)}
+                    onClick={() => removeSettlement(settlement)}
                     disabled={pending && busyKey === settlement.id}
                   >
                     <Undo2 aria-hidden className="size-4" />
-                    {settlement.status === 'paid' ? 'เลิกทำ' : 'กู้คืน'}
+                    เลิกทำ
                   </Button>
                 </li>
               ))}
