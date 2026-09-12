@@ -8,7 +8,7 @@ import {
   TRIP_START,
   buildSeedExpenses,
 } from './fixtures/singapore-trip';
-import { computeTripStats } from '@/lib/trip-stats';
+import { computeCategoryTotals, computeTripStats } from '@/lib/trip-stats';
 import { balancesAreZeroSum, computeBalances, computeExpenseDebts } from '@/lib/settlement';
 import { fromMinorUnits } from '@/lib/money';
 import type { CalcSettlement } from '@/lib/settlement';
@@ -151,5 +151,41 @@ describe('Singapore demo trip totals', () => {
       const sum = expense.splits.reduce((total, split) => total + split.amountMinor, 0);
       expect(sum).toBe(expense.baseAmountMinor);
     }
+  });
+});
+
+describe('category totals for one member', () => {
+  const expenses = buildSeedExpenses();
+
+  it('matches the trip-wide totals when no member is given', () => {
+    const all = computeCategoryTotals(expenses);
+    const sum = all.reduce((total, item) => total + item.amountMinor, 0);
+    expect(fromMinorUnits(sum, BASE_CURRENCY)).toBe('52308.00');
+  });
+
+  it("counts only that member's own split of each expense", () => {
+    const mine = computeCategoryTotals(expenses, NON);
+    const sum = mine.reduce((total, item) => total + item.amountMinor, 0);
+    // Non's share across the whole trip, the same figure the balances show.
+    expect(fromMinorUnits(sum, BASE_CURRENCY)).toBe('16019.01');
+  });
+
+  it('drops categories the member has no share in', () => {
+    // The Universal tickets were split between มิว and แพรว only.
+    const mine = computeCategoryTotals(expenses, NON);
+    expect(mine.some((item) => item.category === 'tickets')).toBe(false);
+
+    const mew = computeCategoryTotals(expenses, MEW);
+    expect(mew.some((item) => item.category === 'tickets')).toBe(true);
+  });
+
+  it('takes percentages against the member own total, not the trip total', () => {
+    const mine = computeCategoryTotals(expenses, NON);
+    const shareSum = mine.reduce((total, item) => total + item.share, 0);
+    expect(shareSum).toBeCloseTo(1, 10);
+  });
+
+  it('returns nothing for a member with no shares at all', () => {
+    expect(computeCategoryTotals(expenses, 'nobody')).toEqual([]);
   });
 });

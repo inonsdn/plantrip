@@ -16,7 +16,7 @@ import { MemberAvatar } from '@/components/ui/avatar';
 import { CategoryChip } from '@/components/ui/category-icon';
 import { formatDateWithWeekday, tripDayLabel } from '@/lib/format';
 import { formatMoney } from '@/lib/money';
-import type { TripStats } from '@/lib/trip-stats';
+import type { CategoryTotal, TripStats } from '@/lib/trip-stats';
 import type { ExpenseView, TripContext } from '@/lib/types';
 import { BalanceBadge } from './balance-badge';
 import { StatTile } from './stat-tile';
@@ -24,17 +24,47 @@ import { useTripUi } from './trip-shell';
 
 type View = 'overview' | 'details';
 
+/** Switches the category breakdown between the whole trip and just my share. */
+function CategoryScopeToggle({
+  mineOnly,
+  onChange,
+}: {
+  mineOnly: boolean;
+  onChange: (mineOnly: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={mineOnly}
+      onClick={() => onChange(!mineOnly)}
+      className={`min-h-8 rounded-lg border px-2.5 text-xs font-medium transition-colors ${
+        mineOnly
+          ? 'border-brand bg-brand-soft text-brand-strong'
+          : 'border-line-strong bg-surface text-muted hover:bg-canvas'
+      }`}
+    >
+      ของฉัน
+    </button>
+  );
+}
+
 export function TripDashboard({
   context,
   stats,
+  myCategoryTotals,
   recentExpenses,
 }: {
   context: TripContext;
   stats: TripStats;
+  myCategoryTotals: CategoryTotal[];
   recentExpenses: ExpenseView[];
 }) {
   const { openExpense } = useTripUi();
   const [view, setView] = useState<View>('overview');
+  const [categoryMineOnly, setCategoryMineOnly] = useState(false);
+  const categories = categoryMineOnly ? myCategoryTotals : stats.byCategory;
+  // Never leave the state to colour alone.
+  const categoryScopeLabel = categoryMineOnly ? 'เฉพาะส่วนของฉัน' : 'ทั้งทริป';
   const { trip, members, allMembers } = context;
   const currency = trip.baseCurrency;
 
@@ -158,10 +188,19 @@ export function TripDashboard({
           </Card>
 
           <Card>
-            <CardHeader title="ค่าใช้จ่ายตามหมวดหมู่" />
+            <CardHeader
+              title="ค่าใช้จ่ายตามหมวดหมู่"
+              description={categoryScopeLabel}
+              action={
+                <CategoryScopeToggle mineOnly={categoryMineOnly} onChange={setCategoryMineOnly} />
+              }
+            />
             <CardBody className="py-3">
+              {categories.length === 0 ? (
+                <p className="py-2 text-sm text-muted">ยังไม่มีค่าใช้จ่ายส่วนของคุณ</p>
+              ) : null}
               <ul className="space-y-2.5">
-                {stats.byCategory.slice(0, 5).map((item) => (
+                {categories.slice(0, 5).map((item) => (
                   <li key={item.category}>
                     <div className="flex items-baseline justify-between gap-2 text-sm">
                       <span className="truncate text-ink">{item.label}</span>
@@ -178,7 +217,7 @@ export function TripDashboard({
                   </li>
                 ))}
               </ul>
-              {stats.byCategory.length > 5 ? (
+              {categories.length > 5 ? (
                 <button
                   type="button"
                   onClick={() => setView('details')}
@@ -236,10 +275,19 @@ export function TripDashboard({
       ) : (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <Card>
-            <CardHeader title="ทุกหมวดหมู่" />
+            <CardHeader
+              title="ทุกหมวดหมู่"
+              description={categoryScopeLabel}
+              action={
+                <CategoryScopeToggle mineOnly={categoryMineOnly} onChange={setCategoryMineOnly} />
+              }
+            />
             <CardBody className="py-3">
+              {categories.length === 0 ? (
+                <p className="py-2 text-sm text-muted">ยังไม่มีค่าใช้จ่ายส่วนของคุณ</p>
+              ) : null}
               <ul className="space-y-2.5">
-                {stats.byCategory.map((item) => (
+                {categories.map((item) => (
                   <li key={item.category} className="flex items-center justify-between gap-2 text-sm">
                     <CategoryChip category={item.category} />
                     <span className="tabular font-medium text-ink">

@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { TripDashboard } from '@/components/trip/dashboard';
 import { getTripContext } from '@/lib/queries/trips';
 import { listExpenses, listSettlements } from '@/lib/queries/expenses';
-import { computeTripStats } from '@/lib/trip-stats';
+import { computeCategoryTotals, computeTripStats } from '@/lib/trip-stats';
 
 export default async function TripDashboardPage({
   params,
@@ -26,6 +26,11 @@ export default async function TripDashboardPage({
   );
 
   return (
-    <TripDashboard context={context} stats={stats} recentExpenses={expenses.slice(0, 6)} />
+    <TripDashboard
+      context={context}
+      stats={stats}
+      myCategoryTotals={computeCategoryTotals(expenses, context.currentMember.id)}
+      recentExpenses={expenses.slice(0, 6)}
+    />
   );
 }
