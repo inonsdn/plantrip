@@ -2,12 +2,14 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, CheckCircle2, History, RefreshCw, Undo2 } from 'lucide-react';
+import { ArrowRight, CheckCheck, CheckCircle2, History, RefreshCw, Undo2 } from 'lucide-react';
 import { CategoryChip } from '@/components/ui/category-icon';
 import { formatDateWithWeekday } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/states';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Checkbox } from '@/components/ui/field';
 import { MemberAvatar } from '@/components/ui/avatar';
 import { useToast } from '@/components/ui/toast';
 import { formatDateTime } from '@/lib/format';
@@ -16,6 +18,7 @@ import {
   cancelSettlementAction,
   recordSettlementAction,
   restoreSettlementAction,
+  settleAllAction,
 } from '@/lib/actions/settlements';
 import type { MemberBalance } from '@/lib/settlement';
 import type { SettlementView, TripContext } from '@/lib/types';
@@ -51,7 +54,8 @@ export function SettlementPanel({
   const [pending, startTransition] = useTransition();
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
-  const [showPaid, setShowPaid] = useState(false);
+  const [onlyUnpaid, setOnlyUnpaid] = useState(true);
+  const [settleAllOpen, setSettleAllOpen] = useState(false);
 
   const currency = context.trip.baseCurrency;
   const memberById = new Map(context.allMembers.map((member) => [member.id, member]));
@@ -59,7 +63,7 @@ export function SettlementPanel({
   const paidCount = items.length - unpaid.length;
   const unpaidCount = unpaid.length;
   const unpaidTotalMinor = unpaid.reduce((total, item) => total + item.amountMinor, 0);
-  const visibleItems = showPaid ? items : unpaid;
+  const visibleItems = onlyUnpaid ? unpaid : items;
   const name = (memberId: string) => memberById.get(memberId)?.displayName ?? 'สมาชิกที่ออกไปแล้ว';
 
   function itemKey(item: SettlementItem) {
@@ -86,6 +90,20 @@ export function SettlementPanel({
             ? 'ยกเลิกการโอนรายการนี้แล้ว'
             : `บันทึกแล้ว: ${name(item.fromMemberId)} โอนให้ ${name(item.toMemberId)}`
           : result.error,
+        tone: result.ok ? 'success' : 'error',
+      });
+      if (result.ok) router.refresh();
+    });
+  }
+
+  function settleEverything() {
+    setBusyKey('__all__');
+    startTransition(async () => {
+      const result = await settleAllAction(context.trip.id);
+      setBusyKey(null);
+      setSettleAllOpen(false);
+      showToast({
+        message: result.ok ? `บันทึกว่าโอนแล้ว ${result.data.settled} รายการ` : result.error,
         tone: result.ok ? 'success' : 'error',
       });
       if (result.ok) router.refresh();
@@ -120,10 +138,21 @@ export function SettlementPanel({
             title="รายการที่ต้องโอน"
             description="แยกตามค่าใช้จ่ายแต่ละรายการ กดยืนยันทีละรายการได้"
             action={
-              <Button type="button" variant="ghost" size="sm" onClick={() => router.refresh()}>
-                <RefreshCw aria-hidden className="size-4" />
-                คำนวณใหม่
-              </Button>
+              <div className="flex flex-wrap justify-end gap-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setSettleAllOpen(true)}
+                  disabled={unpaidCount === 0 || pending}
+                >
+                  <CheckCheck aria-hidden className="size-4" />
+                  โอนหมดแล้ว
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => router.refresh()}>
+                  <RefreshCw aria-hidden className="size-4" />
+                  คำนวณใหม่
+                </Button>
+              </div>
             }
           />
           <CardBody className={items.length === 0 ? '' : 'py-0'}>
@@ -135,8 +164,8 @@ export function SettlementPanel({
               />
             ) : (
               <>
-                {unpaidCount > 0 ? (
-                  <p className="border-b border-line py-2.5 text-sm text-muted">
+                <div className="space-y-2 border-b border-line py-2.5">
+                  <p className="text-sm text-muted">
                     ยังไม่โอน{' '}
                     <span className="tabular font-semibold text-ink">{unpaidCount} รายการ</span>{' '}
                     · รวม{' '}
@@ -144,7 +173,13 @@ export function SettlementPanel({
                       {formatMoney(unpaidTotalMinor, currency)}
                     </span>
                   </p>
-                ) : null}
+                  <Checkbox
+                    checked={onlyUnpaid}
+                    onChange={(event) => setOnlyUnpaid(event.target.checked)}
+                    label="แสดงเฉพาะรายการที่ยังไม่โอน"
+                    hint={paidCount > 0 ? `ซ่อนอยู่ ${paidCount} รายการที่โอนแล้ว` : undefined}
+                  />
+                </div>
 
                 <ul className="divide-y divide-line">
                   {visibleItems.map((item) => {
@@ -200,14 +235,10 @@ export function SettlementPanel({
                   })}
                 </ul>
 
-                {paidCount > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setShowPaid((current) => !current)}
-                    className="w-full border-t border-line py-2.5 text-sm font-medium text-brand-strong"
-                  >
-                    {showPaid ? 'ซ่อนรายการที่โอนแล้ว' : `แสดงรายการที่โอนแล้ว (${paidCount})`}
-                  </button>
+                {visibleItems.length === 0 ? (
+                  <p className="py-4 text-center text-sm text-muted">
+                    โอนครบทุกรายการแล้ว
+                  </p>
                 ) : null}
               </>
             )}
@@ -252,6 +283,25 @@ export function SettlementPanel({
           ยอดคงเหลือรวมไม่เท่ากับศูนย์ กรุณาตรวจสอบรายการค่าใช้จ่ายอีกครั้ง
         </p>
       ) : null}
+
+      <ConfirmDialog
+        open={settleAllOpen}
+        title="บันทึกว่าโอนครบทุกรายการ?"
+        description={
+          <>
+            รายการที่ยังไม่โอนทั้งหมด{' '}
+            <span className="font-medium text-ink">{unpaidCount} รายการ</span> รวม{' '}
+            <span className="tabular font-medium text-ink">
+              {formatMoney(unpaidTotalMinor, currency)}
+            </span>{' '}
+            จะถูกบันทึกว่าโอนแล้ว ยกเลิกทีละรายการภายหลังได้
+          </>
+        }
+        confirmLabel="บันทึกทั้งหมด"
+        tone="primary"
+        onConfirm={settleEverything}
+        onClose={() => setSettleAllOpen(false)}
+      />
 
       <Card>
         <CardHeader

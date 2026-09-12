@@ -3,6 +3,9 @@
 import { revalidatePath } from 'next/cache';
 import { createSupabaseServerClient } from '../supabase/server';
 import { getTripContext } from '../queries/trips';
+import { listExpenses, listSettlements } from '../queries/expenses';
+import { computeExpenseDebts } from '../settlement';
+import { toCalcExpense } from '../trip-stats';
 import { fromMinorUnits, toMinorUnits } from '../money';
 import { fieldErrors, settlementInputSchema } from '../validation';
 import { fail, friendlyError, ok, type ActionResult } from './result';
@@ -56,6 +59,76 @@ export async function recordSettlementAction(input: unknown): Promise<ActionResu
 
   revalidatePath(`/trips/${value.tripId}`, 'layout');
   return ok(undefined);
+}
+
+/**
+ * Marks every outstanding expense debt as paid in one go.
+ *
+ * The debts are recomputed here rather than taken from the client, so a
+ * tampered-with payload cannot settle amounts that were never owed.
+ */
+export async function settleAllAction(
+  tripId: string,
+): Promise<ActionResult<{ settled: number }>> {
+  const context = await getTripContext(tripId);
+  if (!context) return fail('ไม่พบทริปนี้ หรือคุณไม่มีสิทธิ์เข้าถึง');
+
+  const currency = context.trip.baseCurrency;
+  const [expenses, settlements] = await Promise.all([
+    listExpenses(tripId, currency),
+    listSettlements(tripId, currency),
+  ]);
+
+  const paid = new Set(
+    settlements
+      .filter((settlement) => settlement.status === 'paid' && settlement.expenseId)
+      .map(
+        (settlement) =>
+          `${settlement.expenseId}:${settlement.fromMemberId}:${settlement.toMemberId}`,
+      ),
+  );
+
+  const descriptionById = new Map(
+    expenses.map((expense) => [expense.id, expense.description]),
+  );
+
+  const outstanding = computeExpenseDebts(expenses.map(toCalcExpense)).filter(
+    (debt) => !paid.has(`${debt.expenseId}:${debt.fromMemberId}:${debt.toMemberId}`),
+  );
+
+  if (outstanding.length === 0) {
+    return fail('ไม่มีรายการที่ยังไม่โอน');
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const now = new Date().toISOString();
+  const { error } = await supabase.from('settlements').insert(
+    outstanding.map((debt) => ({
+      trip_id: tripId,
+      expense_id: debt.expenseId,
+      from_member_id: debt.fromMemberId,
+      to_member_id: debt.toMemberId,
+      amount_base: fromMinorUnits(debt.amountMinor, currency),
+      status: 'paid' as const,
+      paid_at: now,
+      note: descriptionById.get(debt.expenseId) ?? null,
+      created_by: user?.id ?? null,
+    })),
+  );
+
+  if (error) {
+    if ((error as { code?: string }).code === '23505') {
+      return fail('มีบางรายการถูกบันทึกว่าโอนแล้วระหว่างนี้ กรุณาลองใหม่อีกครั้ง');
+    }
+    return fail(friendlyError(error, 'บันทึกการโอนไม่สำเร็จ'));
+  }
+
+  revalidatePath(`/trips/${tripId}`, 'layout');
+  return ok({ settled: outstanding.length });
 }
 
 /** Undo a recorded transfer. The row is kept as `cancelled` for the history. */
