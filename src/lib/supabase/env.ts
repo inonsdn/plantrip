@@ -6,7 +6,6 @@ import 'server-only';
  * Both naming conventions are accepted, `NEXT_PUBLIC_*` first:
  *   NEXT_PUBLIC_SUPABASE_URL      | SUPABASE_URL
  *   NEXT_PUBLIC_SUPABASE_ANON_KEY | SUPABASE_ANON_KEY
- *   NEXT_PUBLIC_SITE_URL          | SITE_URL
  *
  * Every lookup below references `process.env.X` literally. Next.js only inlines
  * statically written references, so a dynamic `process.env[name]` would read as
@@ -44,12 +43,4 @@ export function supabaseAnonKey(): string {
 /** Config handed to the browser client. The anon key is public by design. */
 export function publicSupabaseConfig(): { url: string; anonKey: string } {
   return { url: supabaseUrl(), anonKey: supabaseAnonKey() };
-}
-
-/** Absolute origin of this deployment, used to render invitation links. */
-export function siteUrl(): string {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.SITE_URL;
-  if (configured?.trim()) return configured.trim().replace(/\/$/, '');
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return 'http://localhost:3000';
 }

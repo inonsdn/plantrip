@@ -196,7 +196,7 @@ open redirect.
 | --- | --- | --- | --- |
 | `SUPABASE_URL` | `NEXT_PUBLIC_SUPABASE_URL` | yes | Supabase project URL |
 | `SUPABASE_ANON_KEY` | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Anon key; safe in the browser because RLS protects every table |
-| `SITE_URL` | `NEXT_PUBLIC_SITE_URL` | yes | Absolute URL of this deployment. Used to render invitation links on the server, so it must match the domain people actually visit |
+| `SITE_URL` | `NEXT_PUBLIC_SITE_URL` | no | Optional canonical domain. Invitation links are built from the incoming request, so they already match the domain a member is on; this is only a fallback |
 | `SUPABASE_SERVICE_ROLE_KEY` | — | **no** | Not used. Joining a trip runs through a `SECURITY DEFINER` function instead |
 
 **No `NEXT_PUBLIC_` prefix is needed.** Only one component talks to Supabase
@@ -274,7 +274,8 @@ trip.
    **Development**:
    - `SUPABASE_URL`
    - `SUPABASE_ANON_KEY`
-   - `SITE_URL` = `https://<your-app>.vercel.app`
+
+   `SITE_URL` is optional — see [Environment variables](#environment-variables).
 3. Deploy.
 4. Go back to **Supabase → Authentication → URL Configuration** and add the real
    Vercel URL to **Site URL** and **Redirect URLs**
@@ -289,6 +290,13 @@ trip.
 
 `vercel.json` pins the Singapore region; change `regions` if your users are
 elsewhere.
+
+**Deployment Protection and invitation links.** If Vercel Deployment Protection
+is on, the per-deployment hostname (`project-git-branch-org.vercel.app`) is
+behind Vercel's own SSO. Invitation links are built from the request host, so
+they point at whatever domain the member is browsing and are unaffected — but
+never copy a link out of a *preview* deployment, because that host is the
+protected one.
 
 ## Security notes
 

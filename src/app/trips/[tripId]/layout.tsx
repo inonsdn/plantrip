@@ -4,7 +4,7 @@ import { TopBar } from '@/components/nav/top-bar';
 import { TripShell } from '@/components/trip/trip-shell';
 import { requireUser } from '@/lib/auth';
 import { getTripContext } from '@/lib/queries/trips';
-import { siteUrl } from '@/lib/supabase/env';
+import { requestOrigin } from '@/lib/request-origin';
 
 export async function generateMetadata({ params }: { params: Promise<{ tripId: string }> }) {
   const { tripId } = await params;
@@ -30,7 +30,7 @@ export default async function TripLayout({
     <div className="min-h-dvh">
       <TopBar user={user} />
       <Suspense>
-        <TripShell context={context} inviteBaseUrl={siteUrl()}>
+        <TripShell context={context} inviteBaseUrl={await requestOrigin()}>
           {children}
         </TripShell>
       </Suspense>
