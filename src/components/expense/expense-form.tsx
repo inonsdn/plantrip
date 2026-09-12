@@ -14,7 +14,7 @@ import { type SplitMethod } from '@/lib/split';
 import { suggestCategory } from '@/lib/categories';
 import { saveExpenseAction, deleteExpenseAction } from '@/lib/actions/expenses';
 import type { ExpenseView, TripContext } from '@/lib/types';
-import { SplitEditor, useSplitPreview } from './split-editor';
+import { SplitMethodPicker, SplitParticipants, useSplitPreview } from './split-editor';
 
 const LAST_CURRENCY_KEY = 'tripmate:last-currency';
 const LAST_PAYER_KEY = 'tripmate:last-payer';
@@ -286,17 +286,23 @@ export function ExpenseForm({
     });
   }
 
-  const perPersonHint =
-    baseAmountMinor > 0 && participantIds.length > 0 && !preview.error
-      ? `คนละ ${formatMoney(Math.round(baseAmountMinor / participantIds.length), trip.baseCurrency)} โดยประมาณ`
-      : null;
-
   return (
     <form id="expense-form" onSubmit={handleSubmit} className="space-y-4" noValidate>
       {/* 1. หน่วยและจำนวนเงิน */}
       <Field label="หน่วยและจำนวนเงิน" htmlFor="amount" error={fieldError.amount} required>
         <div className="flex items-stretch gap-2">
-          <div className="w-28 shrink-0">
+          <TextInput
+            id="amount"
+            data-autofocus
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            inputMode="decimal"
+            autoComplete="off"
+            placeholder="0.00"
+            required
+            className="tabular text-lg font-semibold"
+          />
+          <div className="w-24 shrink-0">
             <Select
               aria-label="สกุลเงิน"
               value={currencyCode}
@@ -310,17 +316,6 @@ export function ExpenseForm({
               ))}
             </Select>
           </div>
-          <TextInput
-            id="amount"
-            data-autofocus
-            value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-            inputMode="decimal"
-            autoComplete="off"
-            placeholder="0.00"
-            required
-            className="tabular text-lg font-semibold"
-          />
         </div>
       </Field>
 
@@ -357,52 +352,55 @@ export function ExpenseForm({
         />
       </Field>
 
-      {/* 3. คนจ่าย */}
-      <Field label="คนจ่าย" htmlFor="payer" error={fieldError.payerMemberId}>
-        <Select
-          id="payer"
-          value={payerMemberId ?? NO_PAYER}
-          onChange={(event) => handlePayerChange(event.target.value)}
-        >
-          {members.map((member) => (
-            <option key={member.id} value={member.id}>
-              {member.displayName}
-              {member.isMe ? ' (ฉัน)' : ''}
-            </option>
-          ))}
-          <option value={NO_PAYER}>ทุกคนจ่ายเอง (ไม่มีผู้จ่ายหลัก)</option>
-        </Select>
-      </Field>
-
-      {/* 4. หารกับใคร / สัดส่วน */}
-      <div className="space-y-1.5">
-        <div className="flex items-baseline justify-between gap-2">
-          <p className="text-sm font-medium text-ink">หารกับใคร / สัดส่วน</p>
-          {perPersonHint ? <p className="text-xs text-muted">{perPersonHint}</p> : null}
+      {/* 3 + 4. คนจ่าย shares a row with the split-method chips; the
+          participants below run the full width. */}
+      <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
+        <div className="w-36 shrink-0">
+          <Field label="คนจ่าย" htmlFor="payer" error={fieldError.payerMemberId}>
+            <Select
+              id="payer"
+              value={payerMemberId ?? NO_PAYER}
+              onChange={(event) => handlePayerChange(event.target.value)}
+              className="px-2"
+            >
+              {members.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.displayName}
+                  {member.isMe ? ' (ฉัน)' : ''}
+                </option>
+              ))}
+              <option value={NO_PAYER}>ทุกคนจ่ายเอง</option>
+            </Select>
+          </Field>
         </div>
-        <SplitEditor
-          members={members}
-          participantIds={participantIds}
-          onToggleParticipant={toggleParticipant}
-          onSelectOnly={selectOnly}
-          onSelectAll={selectAllMembers}
-          onClearAll={clearParticipants}
-          method={splitMethod}
-          onMethodChange={handleMethodChange}
-          values={splitValues}
-          onValueChange={(memberId, value) =>
-            setSplitValues((current) => ({ ...current, [memberId]: value }))
-          }
-          baseCurrency={trip.baseCurrency}
-          totalMinor={baseAmountMinor}
-          preview={preview}
-        />
-        {fieldError.participants ? (
-          <p role="alert" className="text-sm text-negative">
-            {fieldError.participants}
-          </p>
-        ) : null}
+
+        <div className="min-w-48 flex-1 space-y-1.5">
+          <p className="text-sm font-medium text-ink">หารกับใคร / สัดส่วน</p>
+          <SplitMethodPicker method={splitMethod} onMethodChange={handleMethodChange} />
+        </div>
       </div>
+
+      <SplitParticipants
+        members={members}
+        participantIds={participantIds}
+        onToggleParticipant={toggleParticipant}
+        onSelectOnly={selectOnly}
+        onSelectAll={selectAllMembers}
+        onClearAll={clearParticipants}
+        method={splitMethod}
+        values={splitValues}
+        onValueChange={(memberId, value) =>
+          setSplitValues((current) => ({ ...current, [memberId]: value }))
+        }
+        baseCurrency={trip.baseCurrency}
+        totalMinor={baseAmountMinor}
+        preview={preview}
+      />
+      {fieldError.participants ? (
+        <p role="alert" className="text-sm text-negative">
+          {fieldError.participants}
+        </p>
+      ) : null}
 
       {/* 5. เพิ่มเติม */}
       <div className="rounded-lg border border-line">
@@ -484,12 +482,12 @@ export function ExpenseForm({
       ) : null}
 
       {/* Sticky so the save action stays reachable with the keyboard open. */}
-      <div className="sticky bottom-0 -mx-4 -mb-4 flex flex-col-reverse gap-2 border-t border-line bg-surface px-4 py-3 sm:-mx-5 sm:-mb-4 sm:flex-row sm:justify-end sm:px-5">
+      <div className="sticky bottom-0 -mx-4 -mb-4 flex justify-end gap-2 border-t border-line bg-surface px-4 py-3 sm:-mx-5 sm:-mb-4 sm:px-5">
         <Button type="button" variant="secondary" onClick={onDone} disabled={pending}>
           ยกเลิก
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? 'กำลังบันทึก…' : isEdit ? 'บันทึกการแก้ไข' : 'บันทึกค่าใช้จ่าย'}
+          {pending ? 'กำลังบันทึก…' : isEdit ? 'บันทึก' : 'เพิ่ม'}
         </Button>
       </div>
     </form>
