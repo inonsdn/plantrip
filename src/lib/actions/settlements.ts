@@ -213,7 +213,13 @@ export async function settleAllAction(
   return ok({ settled: toInsert.length + toConfirm.length });
 }
 
-/** Undo a recorded transfer. The row is kept as `cancelled` for the history. */
+/**
+ * Undo a transfer or withdraw a claim.
+ *
+ * The row is deleted rather than kept as `cancelled`: a payment that was undone
+ * and then re-recorded left two entries in the history, and restoring the stale
+ * one collided with the live record on the unique index.
+ */
 export async function cancelSettlementAction(
   tripId: string,
   settlementId: string,
@@ -224,7 +230,7 @@ export async function cancelSettlementAction(
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase
     .from('settlements')
-    .update({ status: 'cancelled' })
+    .delete()
     .eq('id', settlementId)
     .eq('trip_id', tripId);
 
@@ -234,34 +240,3 @@ export async function cancelSettlementAction(
   return ok(undefined);
 }
 
-export async function restoreSettlementAction(
-  tripId: string,
-  settlementId: string,
-): Promise<ActionResult> {
-  const context = await getTripContext(tripId);
-  if (!context) return fail('ไม่พบทริปนี้ หรือคุณไม่มีสิทธิ์เข้าถึง');
-
-  const supabase = await createSupabaseServerClient();
-  const { data: row } = await supabase
-    .from('settlements')
-    .select('to_member_id')
-    .eq('id', settlementId)
-    .eq('trip_id', tripId)
-    .maybeSingle();
-
-  if (!row) return fail('ไม่พบรายการโอนนี้');
-  if (!canConfirmReceipt(context, row.to_member_id)) {
-    return fail('ต้องให้ผู้รับเงินเป็นคนยืนยันว่าได้รับแล้ว');
-  }
-
-  const { error } = await supabase
-    .from('settlements')
-    .update({ status: 'paid', paid_at: new Date().toISOString() })
-    .eq('id', settlementId)
-    .eq('trip_id', tripId);
-
-  if (error) return fail(friendlyError(error, 'กู้คืนรายการโอนไม่สำเร็จ'));
-
-  revalidatePath(`/trips/${tripId}`, 'layout');
-  return ok(undefined);
-}

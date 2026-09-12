@@ -57,8 +57,8 @@ Thai; code, schema and this document are in English.
   debts are listed separately — “แพรว → นนท์ ฿2,000 · ตั๋วกระเช้าภูเขา” — so each
   can be settled on its own rather than as one netted lump sum. Pressing
   “โอนแล้ว” on money owed to someone else only files a claim; nothing counts as
-  settled until the person being paid confirms it arrived. Every payment can be
-  undone.
+  settled until the person being paid confirms it arrived. Undoing a payment
+  removes it, so the history only ever lists transfers that stand.
 - **Mobile first.** Bottom navigation with safe-area padding, bottom sheets
   instead of dialogs, 44px touch targets, no horizontal scrolling from 188px up.
 

@@ -65,6 +65,8 @@ export async function listSettlements(
     .from('settlements')
     .select('*')
     .eq('trip_id', tripId)
+    // Undo deletes the row now; this also hides any left over from before.
+    .neq('status', 'cancelled')
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);
