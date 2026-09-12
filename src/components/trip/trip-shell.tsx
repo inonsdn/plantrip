@@ -3,16 +3,16 @@
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import { ArrowLeftRight, LayoutDashboard, Plus, ReceiptText, Users } from 'lucide-react';
+import { ArrowLeftRight, LayoutDashboard, Map, Plus, ReceiptText, Users } from 'lucide-react';
 import { Sheet } from '@/components/ui/sheet';
 import { ExpenseForm } from '@/components/expense/expense-form';
 import { ShareLinkDialog } from './share-link';
 import { TripHeader } from './trip-header';
-import type { ExpenseView, TripContext } from '@/lib/types';
+import type { ExpensePrefill, ExpenseView, TripContext } from '@/lib/types';
 
 interface TripUiValue {
   context: TripContext;
-  openExpense: (expense?: ExpenseView | null) => void;
+  openExpense: (expense?: ExpenseView | null, prefill?: ExpensePrefill) => void;
   openShare: () => void;
 }
 
@@ -27,6 +27,7 @@ export function useTripUi(): TripUiValue {
 const TABS = [
   { key: 'overview', label: 'ภาพรวม', href: '', icon: LayoutDashboard },
   { key: 'expenses', label: 'ค่าใช้จ่าย', href: '/expenses', icon: ReceiptText },
+  { key: 'itinerary', label: 'แผนการเดินทาง', href: '/itinerary', icon: Map },
   { key: 'settlement', label: 'ยอดโอน', href: '/settlement', icon: ArrowLeftRight },
   { key: 'members', label: 'สมาชิก', href: '/members', icon: Users },
 ] as const;
@@ -44,15 +45,16 @@ export function TripShell({
   const searchParams = useSearchParams();
   const base = `/trips/${context.trip.id}`;
 
-  const [expenseSheet, setExpenseSheet] = useState<{ open: boolean; expense: ExpenseView | null }>({
-    open: false,
-    expense: null,
-  });
+  const [expenseSheet, setExpenseSheet] = useState<{
+    open: boolean;
+    expense: ExpenseView | null;
+    prefill: ExpensePrefill | null;
+  }>({ open: false, expense: null, prefill: null });
   // `?share=1` right after creating a trip: surface the invite link immediately.
   const [shareOpen, setShareOpen] = useState(() => searchParams.get('share') === '1');
 
-  const openExpense = useCallback((expense?: ExpenseView | null) => {
-    setExpenseSheet({ open: true, expense: expense ?? null });
+  const openExpense = useCallback((expense?: ExpenseView | null, prefill?: ExpensePrefill) => {
+    setExpenseSheet({ open: true, expense: expense ?? null, prefill: prefill ?? null });
   }, []);
 
   const openShare = useCallback(() => setShareOpen(true), []);
@@ -109,13 +111,13 @@ export function TripShell({
         aria-label="เมนูหลัก"
         className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 pb-safe backdrop-blur sm:hidden"
       >
-        <ul className="grid grid-cols-4">
+        <ul className="grid grid-cols-5">
           {tabs.map((tab) => (
             <li key={tab.key}>
               <Link
                 href={tab.href}
                 aria-current={tab.active ? 'page' : undefined}
-                className={`flex min-h-14 flex-col items-center justify-center gap-0.5 px-1 text-[11px] font-medium ${
+                className={`flex min-h-16 flex-col items-center gap-0.5 px-0.5 pt-2 text-center text-[10px] font-medium leading-tight ${
                   tab.active ? 'text-brand-strong' : 'text-muted'
                 }`}
               >
@@ -129,17 +131,18 @@ export function TripShell({
 
       <Sheet
         open={expenseSheet.open}
-        onClose={() => setExpenseSheet({ open: false, expense: null })}
+        onClose={() => setExpenseSheet({ open: false, expense: null, prefill: null })}
         title={expenseSheet.expense ? 'แก้ไขค่าใช้จ่าย' : 'เพิ่มค่าใช้จ่าย'}
         description={context.trip.name}
         size="lg"
       >
         {expenseSheet.open ? (
           <ExpenseForm
-            key={expenseSheet.expense?.id ?? 'new'}
+            key={expenseSheet.expense?.id ?? expenseSheet.prefill?.description ?? 'new'}
             context={context}
             expense={expenseSheet.expense}
-            onDone={() => setExpenseSheet({ open: false, expense: null })}
+            prefill={expenseSheet.prefill}
+            onDone={() => setExpenseSheet({ open: false, expense: null, prefill: null })}
           />
         ) : null}
       </Sheet>

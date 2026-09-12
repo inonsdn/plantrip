@@ -41,6 +41,12 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   const { pathname, search } = request.nextUrl;
 
   if (!user && !isPublicPath(pathname)) {
+    // API routes answer callers, not browsers: a redirect to the login page
+    // would arrive at fetch() as an HTML body and read as a service failure.
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = '/login';
     redirectUrl.search = '';

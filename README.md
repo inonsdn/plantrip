@@ -21,6 +21,7 @@ Thai; code, schema and this document are in English.
 - [Running migrations](#running-migrations)
 - [Google OAuth](#google-oauth)
 - [Environment variables](#environment-variables)
+- [Itinerary planner and routing providers](#itinerary-planner-and-routing-providers)
 - [Local development](#local-development)
 - [Tests and checks](#tests-and-checks)
 - [Seeding development data](#seeding-development-data)
@@ -59,6 +60,18 @@ Thai; code, schema and this document are in English.
   “โอนแล้ว” on money owed to someone else only files a claim; nothing counts as
   settled until the person being paid confirms it arrived. Undoing a payment
   removes it, so the history only ever lists transfers that stand.
+- **Visual itinerary planner.** Each day is an ordered list of stops beside a
+  map, with a journey between every pair. Per-leg mode (รถส่วนตัว / รถสาธารณะ /
+  เดิน), drag or keyboard reordering, move to another day, and a stop can be
+  taken out of the plan without being deleted. Arrival and departure times are
+  computed once from the day's start time, the travel times and how long you
+  spend at each stop — never stored, never guessed: a leg with no route and no
+  manual time is reported as unknown rather than counted as zero.
+- **Routes can become expenses, but never on their own.** A fare a provider
+  quotes is labelled “ประมาณการ” and stays out of every total.
+  “บันทึกเป็นค่าใช้จ่าย” opens the ordinary expense form prefilled, and nothing
+  is recorded until the real amount, payer and split are confirmed. Editing or
+  deleting the plan afterwards never changes a recorded expense.
 - **Mobile first.** Bottom navigation with safe-area padding, bottom sheets
   instead of dialogs, 44px touch targets, no horizontal scrolling from 188px up.
 
@@ -117,6 +130,10 @@ order:
 | `20240101000400_manual_members.sql` | `add_trip_member` (a seat for someone with no account) and `claim_trip_member` (owner links that seat to an account once they join) |
 | `20240101000500_expense_settlements.sql` | `settlements.expense_id`, so a payment can record which single expense it cleared |
 | `20240101000600_settlement_confirmation.sql` | Trigger enforcing that only the member being paid can mark a debt settled; anyone else's press records a `pending` claim |
+| `20240101000700_itinerary.sql` | `itinerary_days`, `itinerary_stops`, `itinerary_leg_preferences`, `itinerary_route_cache`, the itinerary columns on `expenses`, and the trigger that refuses a cross-trip reference |
+| `20240101000800_itinerary_rls.sql` | RLS on every itinerary table, plus `bump_itinerary_day`, `reorder_itinerary_stops` and `move_itinerary_stop` |
+| `20240101000900_itinerary_budget.sql` | `itinerary_request_budget` and `consume_itinerary_budget` — the server-side daily ceiling on outbound routing calls |
+| `20240101001000_save_expense_itinerary.sql` | `save_expense` carries the optional itinerary reference |
 
 **Option A — Supabase CLI (recommended):**
 
@@ -198,6 +215,10 @@ open redirect.
 | `SUPABASE_ANON_KEY` | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Anon key; safe in the browser because RLS protects every table |
 | `SITE_URL` | `NEXT_PUBLIC_SITE_URL` | no | Optional canonical domain. Invitation links are built from the incoming request, so they already match the domain a member is on; this is only a fallback |
 | `SUPABASE_SERVICE_ROLE_KEY` | — | **no** | Not used. Joining a trip runs through a `SECURITY DEFINER` function instead |
+| `ITINERARY_ROUTE_PROVIDER` | — | no | Routing/places provider id. Unset (or `none`) means routing is switched off and every leg says so |
+| `ITINERARY_DAILY_ROUTE_BUDGET` | — | no | Outbound routing calls allowed per UTC day across the whole application. Default `500`; `0` disables routing entirely |
+| `NEXT_PUBLIC_MAP_TILE_URL` | — | no | XYZ raster tile template, e.g. `https://tiles.example/{z}/{x}/{y}.png`. Unset means the map draws stops and routes on a plain grid and says the base map is not configured |
+| `NEXT_PUBLIC_MAP_ATTRIBUTION` | — | no | Attribution line the tile provider's terms require; shown on the map |
 
 **No `NEXT_PUBLIC_` prefix is needed.** Only one component talks to Supabase
 from the browser — the Google sign-in button — and the sign-in page hands it the
@@ -209,6 +230,86 @@ them at build time: **changing a value on Vercel requires a redeploy**, not just
 restart.
 
 `.env.example` holds placeholders only; never commit real values.
+
+## Itinerary planner and routing providers
+
+`/trips/<id>/itinerary` ("แผนการเดินทาง") plans each day as an ordered list of
+stops with the journeys between them, next to a map.
+
+**What is stored, and what is derived.** `itinerary_days` holds the day's local
+start time, IANA time zone, default transport mode and an optimistic-concurrency
+`version`. `itinerary_stops` holds the places and how long to spend at each.
+`itinerary_leg_preferences` holds one row per **ordered pair of stops** — its
+mode, chosen route, manual duration and map visibility. Arrival, departure,
+waiting and totals are **never stored**: `src/lib/itinerary/schedule.ts` is the
+single calculation and everything on screen comes from it, so there is no second
+copy to drift.
+
+Because a leg is keyed by its pair of stops rather than by position, reordering
+or disabling a stop can never hand one journey's saved route to a different
+journey — the key simply stops matching and the new pair takes the day's default.
+Put the order back and the saved settings come back with it.
+
+**Two different switches.** "รวมในแผน" excludes a stop from the plan: the day
+recomputes as if it were not there (A→B→C becomes A→C) while the stop and its
+data stay. "แสดงบนแผนที่" only hides a route line; it changes nothing about the
+schedule or the totals.
+
+**No routing provider is configured out of the box.** Without
+`ITINERARY_ROUTE_PROVIDER`, `getRouteProvider()` returns a provider that answers
+`not_configured` to everything and returns **no** durations, distances or
+geometry. That is deliberate: a plausible-looking straight line or a guessed
+duration would be indistinguishable from a real answer. A leg with no provider
+result and no manual duration is marked unknown, and every arrival after it is
+reported as "ยังคำนวณไม่ได้" rather than silently assuming zero. Enter a time
+under "ระบุเวลาเอง" to complete the plan by hand.
+
+**Adding a provider.** Implement `RouteProvider`
+(`src/lib/itinerary/providers/types.ts`) and register it in
+`src/lib/itinerary/providers/index.ts`. Before you do, check that provider's
+current terms for the regions you care about:
+
+- Does it cover the countries you plan in, for **each** mode you offer? Map tiles
+  are not routing, and OpenStreetMap data on its own is not a transit schedule.
+- Does it return public-transport itineraries there, with the departure time
+  honoured — and what does it do for a date outside its schedule window? The UI
+  has an explicit `outside_schedule_window` state; use it rather than
+  substituting a different date.
+- What may be cached, and for how long? `cachePolicy` exists so a provider that
+  forbids caching is not cached. `itinerary_route_cache` carries the provider,
+  an expiry and the attribution, and should only be used where caching is
+  permitted.
+- What attribution must be displayed? Return it in `attribution`; the panel and
+  the map both show it.
+- How is the quota enforced — and what happens past it? A free tier is usually a
+  billing threshold, not a hard stop, and a billing alert is a notification, not
+  a cap.
+
+**Cost controls that are already in place.** Requests are debounced (400 ms) and
+answered from an in-memory cache keyed by the exact request; superseded
+responses are dropped rather than applied late. Only transit requests include
+the departure time in their key (rounded to five minutes), so a duration change
+upstream does not re-request every leg behind it. `/api/itinerary/route` and
+`/api/itinerary/places` both require a signed-in **member** of the trip,
+validate coordinates, and apply a per-user burst limit (30 requests/minute).
+`consume_itinerary_budget` then takes one unit of
+`ITINERARY_DAILY_ROUTE_BUDGET` **before** the outbound call, so the daily
+ceiling cannot be overshot; past it every leg reads "ใช้โควตาการเรียกเส้นทางของ
+วันนี้ครบแล้ว".
+
+**Remaining billing risk, honestly.** The burst limit is per server instance and
+held in memory, so on a multi-instance deployment the effective burst ceiling is
+higher than 30/minute. The daily budget is enforced in Postgres and so is
+global, but it counts *our* calls — it cannot know about a provider's own
+billing rules, minimum charges, or calls made with the same key by anything
+else. Restrict the provider key to your own domain and set a hard spend cap in
+the provider's console if it offers one; neither this application nor a billing
+alert can stop charges on its own.
+
+**Base map tiles.** The map draws its own markers and route lines and needs no
+map library. Set `NEXT_PUBLIC_MAP_TILE_URL` (and the attribution its terms
+require) to put raster tiles underneath; without it the map says so instead of
+pretending.
 
 ## Local development
 

@@ -101,6 +101,15 @@ export async function saveExpenseAction(
       payer_member_id: value.payerMemberId,
       included_in_settlement: value.includedInSettlement,
       notes: value.notes ?? null,
+      ...(value.itineraryDayId !== undefined
+        ? { itinerary_day_id: value.itineraryDayId }
+        : {}),
+      ...(value.itineraryOriginStopId !== undefined
+        ? { itinerary_origin_stop_id: value.itineraryOriginStopId }
+        : {}),
+      ...(value.itineraryDestinationStopId !== undefined
+        ? { itinerary_destination_stop_id: value.itineraryDestinationStopId }
+        : {}),
       splits: lines.map((line) => ({
         member_id: line.memberId,
         split_method: line.splitMethod,
