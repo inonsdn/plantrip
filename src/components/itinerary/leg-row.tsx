@@ -1,14 +1,27 @@
 'use client';
 
 import { useId, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronUp, Footprints, Loader2, ReceiptText, Train, Car } from 'lucide-react';
+import {
+  AlertTriangle,
+  Bus,
+  Car,
+  CarTaxiFront,
+  ChevronDown,
+  ChevronUp,
+  Footprints,
+  Loader2,
+  Plane,
+  ReceiptText,
+  Ship,
+  TrainFront,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Field, TextInput } from '@/components/ui/field';
-import { formatDistance } from '@/lib/itinerary/geo';
+import { Field, Select, TextInput } from '@/components/ui/field';
 import {
   TRANSPORT_MODES,
   TRANSPORT_MODE_LABELS,
   formatClock,
+  formatDistance,
   formatDuration,
   type ScheduleLegResult,
   type TransportMode,
@@ -17,21 +30,23 @@ import type { RouteAlternative, RouteResult } from '@/lib/itinerary/providers/ty
 import type { LegRouteState } from './use-routing';
 
 const MODE_ICONS: Record<TransportMode, typeof Car> = {
-  driving: Car,
-  transit: Train,
   walking: Footprints,
+  driving: Car,
+  taxi: CarTaxiFront,
+  transit: Bus,
+  train: TrainFront,
+  flight: Plane,
+  ferry: Ship,
 };
 
 export interface LegRowProps {
   legKey: string;
-  color: string;
   originName: string;
   destinationName: string;
   mode: TransportMode;
   /** False when the pair has no saved preference and is using the day default. */
   fromStoredPreference: boolean;
   manualDurationMinutes: number | null;
-  visibleOnMap: boolean;
   selectedRouteReference: string | null;
   timing: ScheduleLegResult | undefined;
   route: LegRouteState | undefined;
@@ -42,7 +57,6 @@ export interface LegRowProps {
   onSelect: () => void;
   onChangeMode: (mode: TransportMode) => void;
   onChangeManualDuration: (minutes: number | null) => void;
-  onToggleVisible: (next: boolean) => void;
   onChooseAlternative: (reference: string) => void;
   onRecordExpense: (alternative: RouteAlternative | null) => void;
 }
@@ -62,13 +76,11 @@ function chosenAlternative(
 }
 
 export function LegRow({
-  color,
   originName,
   destinationName,
   mode,
   fromStoredPreference,
   manualDurationMinutes,
-  visibleOnMap,
   selectedRouteReference,
   timing,
   route,
@@ -78,7 +90,6 @@ export function LegRow({
   onSelect,
   onChangeMode,
   onChangeManualDuration,
-  onToggleVisible,
   onChooseAlternative,
   onRecordExpense,
 }: LegRowProps) {
@@ -87,6 +98,7 @@ export function LegRow({
     manualDurationMinutes === null ? '' : String(manualDurationMinutes),
   );
   const detailsId = useId();
+  const ModeIcon = MODE_ICONS[mode];
 
   const loading = route?.phase === 'loading';
   const result = route?.phase === 'done' ? route.result : undefined;
@@ -99,11 +111,10 @@ export function LegRow({
       : null;
 
   return (
-    <li className="relative py-1 pl-4 sm:pl-9">
+    <li className="relative py-1 pl-4">
       <span
         aria-hidden
-        className="absolute left-[1.1rem] top-0 h-full w-1 rounded-full sm:left-[2.35rem]"
-        style={{ backgroundColor: color, opacity: selected ? 1 : 0.35 }}
+        className="absolute left-[1.1rem] top-0 h-full w-0.5 rounded-full bg-line-strong"
       />
 
       <div
@@ -167,31 +178,28 @@ export function LegRow({
           </button>
         </div>
 
-        {/* The mode selector sits between the two stop cards, on the leg itself. */}
-        <div className="flex flex-wrap items-center gap-1.5 border-t border-line px-2.5 py-2">
-          {TRANSPORT_MODES.map((candidate) => {
-            const Icon = MODE_ICONS[candidate];
-            const active = candidate === mode;
-            return (
-              <button
-                key={candidate}
-                type="button"
-                disabled={busy}
-                onClick={() => onChangeMode(candidate)}
-                aria-pressed={active}
-                className={`inline-flex min-h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-medium ${
-                  active
-                    ? 'border-brand bg-brand-soft text-brand-strong'
-                    : 'border-line-strong bg-surface text-ink hover:bg-canvas'
-                }`}
-              >
-                <Icon aria-hidden className="size-3.5" />
-                {TRANSPORT_MODE_LABELS[candidate]}
-              </button>
-            );
-          })}
+        {/* The mode selector sits between the two stop cards, on the leg itself.
+            A dropdown rather than a row of chips: with seven ways to travel, a
+            scroller would hide the one that is actually selected. */}
+        <div className="flex items-center gap-2 border-t border-line px-2.5 py-2">
+          <ModeIcon aria-hidden className="size-4 shrink-0 text-brand" />
+          <span className="min-w-0 max-w-56 flex-1">
+            <Select
+              aria-label="การเดินทางช่วงนี้"
+              value={mode}
+              disabled={busy}
+              onChange={(event) => onChangeMode(event.target.value as TransportMode)}
+              className="min-h-10 text-sm"
+            >
+              {TRANSPORT_MODES.map((candidate) => (
+                <option key={candidate} value={candidate}>
+                  {TRANSPORT_MODE_LABELS[candidate]}
+                </option>
+              ))}
+            </Select>
+          </span>
           {!fromStoredPreference ? (
-            <span className="text-[11px] text-muted">ค่าเริ่มต้นของวันนี้</span>
+            <span className="shrink-0 text-[11px] text-muted">ค่าเริ่มต้น</span>
           ) : null}
         </div>
 
@@ -311,22 +319,6 @@ export function LegRow({
                 <span className="text-sm text-muted">นาที</span>
               </span>
             </Field>
-
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={visibleOnMap}
-                disabled={busy}
-                onChange={(event) => onToggleVisible(event.target.checked)}
-                className="mt-0.5 size-5 shrink-0 accent-brand"
-              />
-              <span className="leading-6 text-ink">
-                แสดงบนแผนที่
-                <span className="mt-0.5 block text-xs leading-5 text-muted">
-                  ซ่อนเฉพาะบนแผนที่ ไม่กระทบแผนหรือเวลารวม
-                </span>
-              </span>
-            </label>
 
             <Button
               type="button"

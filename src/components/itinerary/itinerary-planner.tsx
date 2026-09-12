@@ -1,16 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useCallback, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { CalendarDays, List, Map as MapIcon, MoonStar, Plus } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Field, Select, TextInput } from '@/components/ui/field';
-import { Sheet } from '@/components/ui/sheet';
+import { CalendarDays, MapPin, MoonStar } from 'lucide-react';
+import { Field, Select } from '@/components/ui/field';
 import { EmptyState } from '@/components/ui/states';
 import { useToast } from '@/components/ui/toast';
 import { useTripUi } from '@/components/trip/trip-shell';
 import { formatDateWithWeekday } from '@/lib/format';
-import { legColor } from '@/lib/itinerary/geo';
 import { resolveLegs, type StoredLegPreference } from '@/lib/itinerary/legs';
 import {
   TRANSPORT_MODES,
@@ -38,9 +35,10 @@ import {
 } from '@/lib/actions/itinerary';
 import type { ActionResult } from '@/lib/actions/result';
 import { AddStopPanel, type NewStopInput } from './add-stop';
+import { useReorder } from './use-reorder';
 import { LegRow } from './leg-row';
-import { MapView, type MapLeg, type MapStop } from './map-view';
 import { StopCard } from './stop-card';
+import { TimeField } from './time-field';
 import { useLegRoutes, type LegRouteRequest } from './use-routing';
 
 const TIME_ZONES = [
@@ -71,31 +69,8 @@ export function ItineraryPlanner({
   const [selectedDayId, setSelectedDayId] = useState<string | null>(days[0]?.id ?? null);
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
   const [selectedLegKey, setSelectedLegKey] = useState<string | null>(null);
-  const [mobileView, setMobileView] = useState<'list' | 'map'>('list');
-  const [pickingOnMap, setPickingOnMap] = useState(false);
-  const [picked, setPicked] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [showApproximate, setShowApproximate] = useState(false);
-  const [dragKey, setDragKey] = useState<string | null>(null);
-  const [dropKey, setDropKey] = useState<string | null>(null);
-  const [detailSheetOpen, setDetailSheetOpen] = useState(false);
-
-  const listRef = useRef<HTMLDivElement>(null);
-  const listScroll = useRef(0);
-
   // A day that disappears (deleted elsewhere) must not leave the panel blank.
   const day = days.find((candidate) => candidate.id === selectedDayId) ?? days[0] ?? null;
-
-  // Preserve the list's scroll offset across the mobile รายการ/แผนที่ switch.
-  useEffect(() => {
-    const element = listRef.current;
-    if (!element) return;
-    if (mobileView === 'list') element.scrollTop = listScroll.current;
-  }, [mobileView]);
-
-  function switchMobileView(next: 'list' | 'map') {
-    if (mobileView === 'list' && listRef.current) listScroll.current = listRef.current.scrollTop;
-    setMobileView(next);
-  }
 
   const stops = useMemo(() => day?.stops ?? [], [day]);
 
@@ -169,6 +144,9 @@ export function ItineraryPlanner({
         const origin = stopById.get(leg.originStopId);
         const destination = stopById.get(leg.destinationStopId);
         if (!origin || !destination) return null;
+        // A place typed by hand has no coordinates, so there is nothing to ask.
+        if (origin.latitude === null || origin.longitude === null) return null;
+        if (destination.latitude === null || destination.longitude === null) return null;
         return {
           legKey: leg.legKey,
           mode: leg.transportMode,
@@ -237,21 +215,6 @@ export function ItineraryPlanner({
     [schedule.legs],
   );
 
-  const orderByStopId = useMemo(() => {
-    const table = new Map<string, number | null>();
-    let order = 0;
-    for (const stop of stops) {
-      table.set(stop.id, stop.enabled ? (order += 1) : null);
-    }
-    return table;
-  }, [stops]);
-
-  const colorByLegKey = useMemo(() => {
-    const table = new Map<string, string>();
-    legs.forEach((leg, index) => table.set(leg.legKey, legColor(index)));
-    return table;
-  }, [legs]);
-
   // ---------------------------------------------------------------------
   // mutations
   // ---------------------------------------------------------------------
@@ -287,7 +250,7 @@ export function ItineraryPlanner({
           expectedVersion: day.version,
           ...input,
         }),
-      { success: 'เพิ่มสถานที่แล้ว', onSuccess: () => setPicked(null) },
+      { success: 'เพิ่มสถานที่แล้ว' },
     );
   }
 
@@ -307,17 +270,22 @@ export function ItineraryPlanner({
     );
   }
 
-  function reorder(stopIds: string[]) {
-    if (!day) return;
-    run(() =>
-      reorderItineraryStopsAction({
-        tripId,
-        dayId: day.id,
-        stopIds,
-        expectedVersion: day.version,
-      }),
-    );
-  }
+  // Stable, so the drag's window listeners are not torn down and re-added on
+  // every frame of the drag.
+  const reorder = useCallback(
+    (stopIds: string[]) => {
+      if (!day) return;
+      run(() =>
+        reorderItineraryStopsAction({
+          tripId,
+          dayId: day.id,
+          stopIds,
+          expectedVersion: day.version,
+        }),
+      );
+    },
+    [day, run, tripId],
+  );
 
   function moveBy(stopId: string, delta: number) {
     const index = stops.findIndex((stop) => stop.id === stopId);
@@ -326,20 +294,6 @@ export function ItineraryPlanner({
     const next = stops.map((stop) => stop.id);
     [next[index], next[target]] = [next[target], next[index]];
     reorder(next);
-  }
-
-  function dropOnto(targetId: string) {
-    if (!dragKey || dragKey === targetId) {
-      setDragKey(null);
-      setDropKey(null);
-      return;
-    }
-    const ids = stops.map((stop) => stop.id).filter((id) => id !== dragKey);
-    const at = ids.indexOf(targetId);
-    ids.splice(at < 0 ? ids.length : at, 0, dragKey);
-    setDragKey(null);
-    setDropKey(null);
-    reorder(ids);
   }
 
   function deleteStop(stopId: string) {
@@ -406,50 +360,8 @@ export function ItineraryPlanner({
     });
   }
 
-  // ---------------------------------------------------------------------
-  // map inputs
-  // ---------------------------------------------------------------------
-
-  const mapStops = useMemo<MapStop[]>(
-    () =>
-      stops.map((stop) => ({
-        id: stop.id,
-        name: stop.name,
-        latitude: stop.latitude,
-        longitude: stop.longitude,
-        enabled: stop.enabled,
-        order: orderByStopId.get(stop.id) ?? null,
-      })),
-    [stops, orderByStopId],
-  );
-
-  const mapLegs = useMemo<MapLeg[]>(
-    () =>
-      legs.map((leg) => {
-        const origin = stopById.get(leg.originStopId);
-        const destination = stopById.get(leg.destinationStopId);
-        return {
-          legKey: leg.legKey,
-          color: colorByLegKey.get(leg.legKey) ?? legColor(0),
-          originStopId: leg.originStopId,
-          destinationStopId: leg.destinationStopId,
-          geometry: chosenByLegKey.get(leg.legKey)?.geometry ?? null,
-          // Map visibility is a saved per-leg preference and nothing more: it
-          // never reaches the schedule or the day's totals.
-          visible: leg.visibleOnMap,
-          label: `${origin?.name ?? '?'} → ${destination?.name ?? '?'}`,
-        };
-      }),
-    [legs, stopById, colorByLegKey, chosenByLegKey],
-  );
-
-  const attributions = useMemo(() => {
-    const seen = new Set<string>();
-    for (const state of Object.values(routes)) {
-      if (state.phase === 'done' && state.result.attribution) seen.add(state.result.attribution);
-    }
-    return [...seen];
-  }, [routes]);
+  const stopIds = useMemo(() => stops.map((stop) => stop.id), [stops]);
+  const drag = useReorder(stopIds, reorder);
 
   if (days.length === 0 || !day) {
     return (
@@ -463,7 +375,16 @@ export function ItineraryPlanner({
 
   const crossesMidnight =
     schedule.endMinutes !== null && splitClock(schedule.endMinutes).dayOffset > 0;
-  const selectedStop = selectedStopId ? stopById.get(selectedStopId) ?? null : null;
+  // Numbered from the order on screen, so the badges follow a card while it is
+  // being dragged rather than showing where it used to be.
+  const orderByStopId = new Map<string, number | null>();
+  let visibleOrder = 0;
+  for (const stopId of drag.order) {
+    const candidate = stopById.get(stopId);
+    if (!candidate) continue;
+    orderByStopId.set(stopId, candidate.enabled ? (visibleOrder += 1) : null);
+  }
+
   const otherDays = days
     .filter((candidate) => candidate.id !== day.id)
     .map((candidate) => ({ id: candidate.id, label: formatDateWithWeekday(candidate.localDate) }));
@@ -473,20 +394,22 @@ export function ItineraryPlanner({
       <div className="rounded-xl border border-line bg-surface p-3">
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="เริ่มวันเวลา">
-            <TextInput
-              type="time"
+            <TimeField
               value={day.startLocalTime.slice(0, 5)}
               disabled={pending}
-              onChange={(event) =>
+              hourLabel="ชั่วโมงที่เริ่มวัน"
+              minuteLabel="นาทีที่เริ่มวัน"
+              onChange={(next) => {
+                if (!next) return;
                 run(() =>
                   updateItineraryDayAction({
                     tripId,
                     dayId: day.id,
-                    startLocalTime: event.target.value,
+                    startLocalTime: next,
                     expectedVersion: day.version,
                   }),
-                )
-              }
+                );
+              }}
             />
           </Field>
           <Field label="เขตเวลา">
@@ -600,25 +523,27 @@ export function ItineraryPlanner({
         tripId={tripId}
         searchEnabled={routingConfigured}
         busy={pending}
-        pickingOnMap={pickingOnMap}
-        pickedCoordinates={picked}
-        onTogglePickOnMap={(next) => {
-          setPickingOnMap(next);
-          if (next) switchMobileView('map');
-        }}
         onAdd={addStop}
       />
 
       {stops.length === 0 ? (
         <EmptyState
-          icon={<Plus className="size-8" />}
+          icon={<MapPin className="size-8" />}
           title="ยังไม่มีสถานที่ในวันนี้"
-          description="ค้นหาสถานที่ หรือปักหมุดบนแผนที่เพื่อเริ่มวางแผน"
+          description="เพิ่มสถานที่แรกด้านบน แล้วลากการ์ดเพื่อจัดลำดับได้"
         />
       ) : (
         <ol className="space-y-1">
-          {stops.map((stop, index) => {
-            const legBefore = legs.find((leg) => leg.destinationStopId === stop.id);
+          {drag.order.map((stopId, index) => {
+            const stop = stopById.get(stopId);
+            if (!stop) return null;
+
+            // While a card is under a finger the list shows only the cards, in
+            // their new order: the journeys between them belong to the order
+            // that is saved, not to the one being previewed.
+            const legBefore = drag.draggingId
+              ? undefined
+              : legs.find((leg) => leg.destinationStopId === stop.id);
             const legOrigin = legBefore ? stopById.get(legBefore.originStopId) : undefined;
 
             return (
@@ -627,13 +552,11 @@ export function ItineraryPlanner({
                   <ol>
                     <LegRow
                       legKey={legBefore.legKey}
-                      color={colorByLegKey.get(legBefore.legKey) ?? legColor(0)}
                       originName={legOrigin.name}
                       destinationName={stop.name}
                       mode={legBefore.transportMode}
                       fromStoredPreference={legBefore.fromStoredPreference}
                       manualDurationMinutes={legBefore.manualDurationMinutes}
-                      visibleOnMap={legBefore.visibleOnMap}
                       selectedRouteReference={legBefore.selectedRouteReference}
                       timing={legTiming.get(legBefore.legKey)}
                       route={routes[legBefore.legKey]}
@@ -655,11 +578,6 @@ export function ItineraryPlanner({
                       onChangeManualDuration={(minutes) =>
                         saveLeg(legBefore.originStopId, legBefore.destinationStopId, {
                           manualDurationMinutes: minutes,
-                        })
-                      }
-                      onToggleVisible={(next) =>
-                        saveLeg(legBefore.originStopId, legBefore.destinationStopId, {
-                          visibleOnMap: next,
                         })
                       }
                       onChooseAlternative={(reference) =>
@@ -689,7 +607,7 @@ export function ItineraryPlanner({
                     selected={selectedStopId === stop.id}
                     busy={pending}
                     isFirst={index === 0}
-                    isLast={index === stops.length - 1}
+                    isLast={index === drag.order.length - 1}
                     otherDays={otherDays}
                     onSelect={() => {
                       setSelectedStopId(stop.id);
@@ -705,10 +623,9 @@ export function ItineraryPlanner({
                     onToggleEnabled={(next) => updateStop(stop.id, { enabled: next })}
                     onUpdate={(patch) => updateStop(stop.id, patch)}
                     onDelete={() => deleteStop(stop.id)}
-                    onDragStart={() => setDragKey(stop.id)}
-                    onDragOver={() => setDropKey(stop.id)}
-                    onDrop={() => dropOnto(stop.id)}
-                    dragging={dragKey === stop.id || dropKey === stop.id}
+                    onGripPointerDown={(event) => drag.start(stop.id, event)}
+                    registerElement={(element) => drag.register(stop.id, element)}
+                    dragging={drag.draggingId === stop.id}
                   />
                 </ol>
               </li>
@@ -719,42 +636,9 @@ export function ItineraryPlanner({
     </div>
   );
 
-  const map = (
-    <MapView
-      stops={mapStops}
-      legs={mapLegs}
-      selectedStopId={selectedStopId}
-      selectedLegKey={selectedLegKey}
-      onSelectStop={(stopId) => {
-        setSelectedStopId(stopId);
-        setSelectedLegKey(null);
-        if (mobileView === 'map') setDetailSheetOpen(true);
-      }}
-      onSelectLeg={(key) => {
-        setSelectedLegKey(key);
-        setSelectedStopId(null);
-      }}
-      onPickCoordinates={
-        pickingOnMap
-          ? (latitude, longitude) => {
-              setPicked({ latitude, longitude });
-              setPickingOnMap(false);
-              switchMobileView('list');
-            }
-          : null
-      }
-      attributions={attributions}
-      showApproximateConnectors={showApproximate}
-      onToggleApproximateConnectors={setShowApproximate}
-      onToggleLegVisible={(key, next) => {
-        const leg = legs.find((candidate) => candidate.legKey === key);
-        if (leg) saveLeg(leg.originStopId, leg.destinationStopId, { visibleOnMap: next });
-      }}
-    />
-  );
-
   return (
-    <div className="space-y-3">
+    // A list reads badly at full desktop width, so it keeps a column.
+    <div className="mx-auto w-full max-w-3xl space-y-3">
       {/* Day selector: a horizontal strip so long trips stay one row. */}
       <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
         <ul className="flex w-max gap-2">
@@ -787,83 +671,8 @@ export function ItineraryPlanner({
         </ul>
       </div>
 
-      {/* Mobile view switch; both panes stay mounted so state and scroll survive. */}
-      <div className="flex gap-1 rounded-lg border border-line bg-surface p-1 lg:hidden">
-        {(
-          [
-            { key: 'list' as const, label: 'รายการ', icon: List },
-            { key: 'map' as const, label: 'แผนที่', icon: MapIcon },
-          ]
-        ).map((view) => (
-          <button
-            key={view.key}
-            type="button"
-            onClick={() => switchMobileView(view.key)}
-            aria-pressed={mobileView === view.key}
-            className={`inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md text-sm font-semibold ${
-              mobileView === view.key ? 'bg-brand text-white' : 'text-ink'
-            }`}
-          >
-            <view.icon aria-hidden className="size-4" />
-            {view.label}
-          </button>
-        ))}
-      </div>
+      {panel}
 
-      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start lg:gap-4">
-        <div
-          ref={listRef}
-          className={`${mobileView === 'list' ? '' : 'hidden'} lg:block lg:max-h-[calc(100dvh-13rem)] lg:overflow-y-auto lg:pr-1`}
-        >
-          {panel}
-        </div>
-
-        {/* The map keeps its own height and stays put while the panel scrolls. */}
-        <div
-          className={`${mobileView === 'map' ? '' : 'hidden'} h-[calc(100dvh-16rem)] lg:sticky lg:top-4 lg:block lg:h-[calc(100dvh-13rem)]`}
-        >
-          {map}
-        </div>
-      </div>
-
-      {/* Compact stop detail on phones, so the map stays visible behind it. */}
-      <Sheet
-        open={detailSheetOpen && mobileView === 'map' && selectedStop !== null}
-        onClose={() => setDetailSheetOpen(false)}
-        title={selectedStop?.name ?? ''}
-        description={selectedStop?.address ?? undefined}
-      >
-        {selectedStop ? (
-          <div className="space-y-2 text-sm">
-            <p className="text-ink-soft">
-              {selectedStop.enabled
-                ? stopTiming.get(selectedStop.id)?.incomplete
-                  ? 'เวลายังคำนวณไม่ได้'
-                  : `ถึง ${formatClock(
-                      stopTiming.get(selectedStop.id)?.arrivalMinutes,
-                    )} · ออก ${formatClock(stopTiming.get(selectedStop.id)?.departureMinutes)}`
-                : 'ไม่รวมในแผน'}
-            </p>
-            <p className="text-ink-soft">
-              อยู่ที่นี่ {formatDuration(selectedStop.visitDurationMinutes)}
-            </p>
-            {selectedStop.notes ? (
-              <p className="whitespace-pre-wrap text-ink-soft">{selectedStop.notes}</p>
-            ) : null}
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setDetailSheetOpen(false);
-                switchMobileView('list');
-              }}
-            >
-              แก้ไขในรายการ
-            </Button>
-          </div>
-        ) : null}
-      </Sheet>
     </div>
   );
 }

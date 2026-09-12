@@ -1,52 +1,78 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Loader2, MapPinPlus, Search } from 'lucide-react';
+import { Loader2, MapPinPlus, Plus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Field, TextInput } from '@/components/ui/field';
+import { formatDuration } from '@/lib/itinerary/schedule';
 import type { PlaceResult, PlaceSearchResult } from '@/lib/itinerary/providers/types';
+import { TimeField } from './time-field';
 
 export interface NewStopInput {
   name: string;
   address: string | null;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   placeProvider: string;
   placeId: string | null;
+  visitDurationMinutes: number;
+  notBeforeLocalTime: string | null;
 }
 
+const DURATION_SHORTCUTS = [15, 30, 60, 120] as const;
+
 /**
- * Adding a place never asks for money: a stop is a plan item, and recording an
- * expense for it is a separate, optional step on the leg.
+ * Adding a place asks for a place: a name, when you mean to get there, and how
+ * long you are staying. No money, and no coordinates — the plan is a list.
  */
 export function AddStopPanel({
   tripId,
   searchEnabled,
   busy,
-  pickingOnMap,
-  pickedCoordinates,
-  onTogglePickOnMap,
   onAdd,
 }: {
   tripId: string;
-  /** False when no places provider is set up; stops are then added by hand. */
+  /** True only when a places provider is configured; search is hidden otherwise. */
   searchEnabled: boolean;
   busy: boolean;
-  pickingOnMap: boolean;
-  pickedCoordinates: { latitude: number; longitude: number } | null;
-  onTogglePickOnMap: (next: boolean) => void;
   onAdd: (stop: NewStopInput) => void;
 }) {
+  const [name, setName] = useState('');
+  const [arriveAt, setArriveAt] = useState<string | null>(null);
+  const [duration, setDuration] = useState(60);
+  const [error, setError] = useState<string | null>(null);
+
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [search, setSearch] = useState<PlaceSearchResult | null>(null);
-  // With no search behind it, adding by hand is the whole panel, not a fallback.
-  const [manualOpen, setManualOpen] = useState(!searchEnabled);
-  const [manualName, setManualName] = useState('');
-  const [manualLat, setManualLat] = useState('');
-  const [manualLng, setManualLng] = useState('');
-  const [manualError, setManualError] = useState<string | null>(null);
   const runId = useRef(0);
+
+  function reset() {
+    setName('');
+    setArriveAt(null);
+    setDuration(60);
+    setError(null);
+  }
+
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError('กรุณากรอกชื่อสถานที่');
+      return;
+    }
+    onAdd({
+      name: trimmed,
+      address: null,
+      latitude: null,
+      longitude: null,
+      placeProvider: 'manual',
+      placeId: null,
+      visitDurationMinutes: duration,
+      notBeforeLocalTime: arriveAt,
+    });
+    reset();
+  }
 
   async function runSearch(event: React.FormEvent) {
     event.preventDefault();
@@ -87,50 +113,21 @@ export function AddStopPanel({
       longitude: place.longitude,
       placeProvider: place.placeProvider,
       placeId: place.placeId,
+      visitDurationMinutes: duration,
+      notBeforeLocalTime: arriveAt,
     });
     setQuery('');
     setSearch(null);
-  }
-
-  function addManual() {
-    setManualError(null);
-    const name = manualName.trim();
-    const latitude = Number(pickedCoordinates ? pickedCoordinates.latitude : Number(manualLat));
-    const longitude = Number(pickedCoordinates ? pickedCoordinates.longitude : Number(manualLng));
-
-    if (!name) {
-      setManualError('กรุณากรอกชื่อสถานที่');
-      return;
-    }
-    if (
-      !Number.isFinite(latitude) ||
-      !Number.isFinite(longitude) ||
-      Math.abs(latitude) > 90 ||
-      Math.abs(longitude) > 180
-    ) {
-      setManualError('พิกัดไม่ถูกต้อง');
-      return;
-    }
-
-    onAdd({
-      name,
-      address: null,
-      latitude,
-      longitude,
-      placeProvider: 'manual',
-      placeId: null,
-    });
-    setManualName('');
-    setManualLat('');
-    setManualLng('');
-    onTogglePickOnMap(false);
+    reset();
   }
 
   return (
-    <div className="rounded-xl border border-line bg-surface p-3">
+    <div className="rounded-xl border border-line bg-surface p-4">
+      <h2 className="text-sm font-semibold text-ink">เพิ่มสถานที่</h2>
+
       {searchEnabled ? (
         <>
-          <form onSubmit={runSearch} className="flex items-start gap-2">
+          <form onSubmit={runSearch} className="mt-3 flex items-start gap-2">
             <span className="min-w-0 flex-1">
               <TextInput
                 value={query}
@@ -140,7 +137,7 @@ export function AddStopPanel({
                 disabled={busy}
               />
             </span>
-            <Button type="submit" disabled={busy || searching || !query.trim()}>
+            <Button type="submit" variant="secondary" disabled={busy || searching || !query.trim()}>
               {searching ? (
                 <Loader2 aria-hidden className="size-4 animate-spin" />
               ) : (
@@ -159,7 +156,7 @@ export function AddStopPanel({
                       type="button"
                       disabled={busy}
                       onClick={() => addFromResult(place)}
-                      className="flex w-full min-h-11 items-center justify-between gap-2 rounded-lg border border-line px-2.5 py-2 text-left text-sm hover:bg-canvas"
+                      className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-line px-2.5 py-2 text-left text-sm hover:bg-canvas"
                     >
                       <span className="min-w-0">
                         <span className="block truncate font-medium text-ink">{place.name}</span>
@@ -184,80 +181,73 @@ export function AddStopPanel({
         </>
       ) : null}
 
-      <div className={searchEnabled ? 'mt-3 border-t border-line pt-3' : ''}>
-        {searchEnabled ? (
-          <button
-            type="button"
-            onClick={() => setManualOpen((open) => !open)}
-            aria-expanded={manualOpen}
-            className="text-sm font-medium text-brand-strong underline-offset-2 hover:underline"
-          >
-            เพิ่มจุดเอง (ปักหมุดหรือใส่พิกัด)
-          </button>
-        ) : (
-          <p className="text-sm font-medium text-ink">
-            เพิ่มสถานที่
-            <span className="mt-0.5 block text-xs font-normal leading-5 text-muted">
-              ปักหมุดบนแผนที่ หรือใส่พิกัดจากแอปแผนที่ที่คุณใช้
-            </span>
-          </p>
-        )}
+      <form onSubmit={submit} className="mt-3 space-y-4">
+        <Field label="ชื่อสถานที่" error={error} required>
+          <TextInput
+            value={name}
+            onChange={(event) => {
+              setName(event.target.value);
+              if (error) setError(null);
+            }}
+            placeholder="เช่น สนามบินชิโตเซะ"
+            disabled={busy}
+          />
+        </Field>
 
-        {manualOpen ? (
-          <div className="mt-3 space-y-3">
-            <Field label="ชื่อสถานที่" error={manualError}>
-              <TextInput
-                value={manualName}
-                onChange={(event) => setManualName(event.target.value)}
+        <Field label="เวลาที่จะไปถึง" hint="ไม่ใส่ก็ได้ — แผนจะคำนวณเวลาถึงให้จากลำดับและเวลาเดินทาง">
+          <TimeField
+            value={arriveAt}
+            onChange={setArriveAt}
+            disabled={busy}
+            clearable
+            hourLabel="ชั่วโมงที่จะไปถึงของสถานที่ใหม่"
+            minuteLabel="นาทีที่จะไปถึงของสถานที่ใหม่"
+          />
+        </Field>
+
+        <Field label="อยู่ที่นี่นานเท่าไร">
+          <div className="flex flex-wrap items-center gap-2">
+            {DURATION_SHORTCUTS.map((minutes) => (
+              <button
+                key={minutes}
+                type="button"
                 disabled={busy}
-              />
-            </Field>
-
-            <Button
-              type="button"
-              variant={pickingOnMap ? 'primary' : 'secondary'}
-              size="sm"
-              onClick={() => onTogglePickOnMap(!pickingOnMap)}
-            >
-              {pickingOnMap ? 'กำลังรอให้แตะบนแผนที่…' : 'เลือกจุดบนแผนที่'}
-            </Button>
-
-            {pickedCoordinates ? (
-              <p className="text-xs text-ink-soft">
-                พิกัดที่เลือก {pickedCoordinates.latitude.toFixed(5)},{' '}
-                {pickedCoordinates.longitude.toFixed(5)}
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                <span className="w-32">
-                  <Field label="ละติจูด">
-                    <TextInput
-                      inputMode="decimal"
-                      value={manualLat}
-                      onChange={(event) => setManualLat(event.target.value)}
-                      disabled={busy}
-                    />
-                  </Field>
-                </span>
-                <span className="w-32">
-                  <Field label="ลองจิจูด">
-                    <TextInput
-                      inputMode="decimal"
-                      value={manualLng}
-                      onChange={(event) => setManualLng(event.target.value)}
-                      disabled={busy}
-                    />
-                  </Field>
-                </span>
-              </div>
-            )}
-
-            <Button type="button" size="sm" disabled={busy} onClick={addManual}>
-              เพิ่มจุดนี้
-            </Button>
+                onClick={() => setDuration(minutes)}
+                aria-pressed={duration === minutes}
+                className={`inline-flex min-h-9 items-center rounded-full border px-3 text-sm font-medium ${
+                  duration === minutes
+                    ? 'border-brand bg-brand-soft text-brand-strong'
+                    : 'border-line-strong bg-surface text-ink hover:bg-canvas'
+                }`}
+              >
+                {formatDuration(minutes)}
+              </button>
+            ))}
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-20">
+                <TextInput
+                  inputMode="numeric"
+                  aria-label="เวลาที่อยู่ (นาที)"
+                  value={String(duration)}
+                  disabled={busy}
+                  onChange={(event) => {
+                    const parsed = Number(event.target.value);
+                    if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 1440) {
+                      setDuration(Math.round(parsed));
+                    }
+                  }}
+                />
+              </span>
+              <span className="text-sm text-muted">นาที</span>
+            </span>
           </div>
-        ) : null}
-      </div>
+        </Field>
+
+        <Button type="submit" disabled={busy}>
+          <Plus aria-hidden className="size-4" />
+          เพิ่มลงในวันนี้
+        </Button>
+      </form>
     </div>
   );
 }

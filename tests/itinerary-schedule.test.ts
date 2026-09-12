@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  TRANSPORT_MODES,
+  TRANSPORT_MODE_LABELS,
   computeDaySchedule,
   formatClock,
+  formatDistance,
   formatDuration,
   legKey,
   parseLocalTime,
@@ -231,5 +234,29 @@ describe('formatting', () => {
     expect(parseLocalTime('09:30:00')).toBe(570);
     expect(parseLocalTime('24:00')).toBeNull();
     expect(parseLocalTime(null)).toBeNull();
+  });
+});
+
+describe('transport modes', () => {
+  it('offers every way of getting there, each with Thai copy', () => {
+    expect([...TRANSPORT_MODES]).toEqual([
+      'walking',
+      'driving',
+      'taxi',
+      'transit',
+      'train',
+      'flight',
+      'ferry',
+    ]);
+    for (const mode of TRANSPORT_MODES) {
+      expect(TRANSPORT_MODE_LABELS[mode].length).toBeGreaterThan(0);
+    }
+  });
+
+  it('formats distances in Thai units', () => {
+    expect(formatDistance(800)).toBe('800 ม.');
+    expect(formatDistance(1500)).toBe('1.5 กม.');
+    expect(formatDistance(23400)).toBe('23 กม.');
+    expect(formatDistance(null)).toBe('—');
   });
 });

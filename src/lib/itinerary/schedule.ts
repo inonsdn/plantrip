@@ -9,13 +9,25 @@
  * than wrapped, so "01:00 (+1)" is distinguishable from "01:00".
  */
 
-export const TRANSPORT_MODES = ['driving', 'transit', 'walking'] as const;
+export const TRANSPORT_MODES = [
+  'walking',
+  'driving',
+  'taxi',
+  'transit',
+  'train',
+  'flight',
+  'ferry',
+] as const;
 export type TransportMode = (typeof TRANSPORT_MODES)[number];
 
 export const TRANSPORT_MODE_LABELS: Record<TransportMode, string> = {
-  driving: 'รถส่วนตัว',
-  transit: 'รถสาธารณะ',
   walking: 'เดิน',
+  driving: 'รถส่วนตัว',
+  taxi: 'แท็กซี่',
+  transit: 'รถสาธารณะ',
+  train: 'รถไฟ',
+  flight: 'เครื่องบิน',
+  ferry: 'เรือ',
 };
 
 /** Where a leg's travel time came from. `unknown` means we genuinely do not know. */
@@ -222,6 +234,14 @@ export function formatDuration(minutes: number | null | undefined): string {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return rest === 0 ? `${hours} ชม.` : `${hours} ชม. ${rest} นาที`;
+}
+
+/** `1500` -> `1.5 กม.`; `800` -> `800 ม.` */
+export function formatDistance(meters: number | null | undefined): string {
+  if (meters === null || meters === undefined) return '—';
+  if (meters < 1000) return `${Math.round(meters)} ม.`;
+  const km = meters / 1000;
+  return `${km < 10 ? km.toFixed(1) : String(Math.round(km))} กม.`;
 }
 
 /** `'09:30'` -> `570`. Returns null for anything unparseable. */

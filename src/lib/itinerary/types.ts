@@ -8,8 +8,8 @@ export interface ItineraryStopView {
   placeId: string | null;
   name: string;
   address: string | null;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   visitDurationMinutes: number;
   notBeforeLocalTime: string | null;
   enabled: boolean;

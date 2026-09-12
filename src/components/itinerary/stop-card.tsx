@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Field, Select, TextArea, TextInput } from '@/components/ui/field';
+import { TimeField } from './time-field';
 import {
   formatClock,
   formatDuration,
@@ -42,9 +43,9 @@ export interface StopCardProps {
     notBeforeLocalTime?: string | null;
   }) => void;
   onDelete: () => void;
-  onDragStart: () => void;
-  onDragOver: () => void;
-  onDrop: () => void;
+  /** Pointer-driven reordering; see use-reorder.ts. */
+  onGripPointerDown: (event: React.PointerEvent) => void;
+  registerElement: (element: HTMLLIElement | null) => void;
   dragging: boolean;
 }
 
@@ -64,9 +65,8 @@ export function StopCard({
   onToggleEnabled,
   onUpdate,
   onDelete,
-  onDragStart,
-  onDragOver,
-  onDrop,
+  onGripPointerDown,
+  registerElement,
   dragging,
 }: StopCardProps) {
   const [open, setOpen] = useState(false);
@@ -79,28 +79,24 @@ export function StopCard({
 
   return (
     <li
-      draggable={!busy}
-      onDragStart={onDragStart}
-      onDragOver={(event) => {
-        event.preventDefault();
-        onDragOver();
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        onDrop();
-      }}
-      className={`rounded-xl border bg-surface transition-colors ${
+      ref={registerElement}
+      className={`rounded-xl border bg-surface transition-shadow ${
         selected ? 'border-brand ring-2 ring-brand/30' : 'border-line'
-      } ${dragging ? 'opacity-50' : ''} ${stop.enabled ? '' : 'bg-canvas/60'}`}
+      } ${dragging ? 'shadow-lg shadow-ink/15 ring-2 ring-brand' : ''} ${
+        stop.enabled ? '' : 'bg-canvas/60'
+      }`}
     >
       <div className="flex items-start gap-2 p-3">
-        <span
-          aria-hidden
-          className="mt-1 hidden cursor-grab text-muted sm:block"
-          title="ลากเพื่อจัดลำดับ"
+        {/* touch-none stops the page from scrolling out from under the drag. */}
+        <button
+          type="button"
+          disabled={busy}
+          onPointerDown={onGripPointerDown}
+          className="-ml-1 mt-0.5 inline-flex size-8 shrink-0 touch-none cursor-grab items-center justify-center rounded-lg text-muted hover:bg-canvas hover:text-ink active:cursor-grabbing"
         >
-          <GripVertical className="size-4" />
-        </span>
+          <GripVertical aria-hidden className="size-4" />
+          <span className="sr-only">ลากเพื่อจัดลำดับ {stop.name}</span>
+        </button>
 
         <span
           aria-hidden
@@ -231,19 +227,17 @@ export function StopCard({
           </Field>
 
           <Field
-            label="ถึงไม่ก่อนเวลา"
-            hint="ถ้าไปถึงก่อนเวลานี้ แผนจะนับเป็นเวลารอ เว้นว่างได้ถ้าไม่มีข้อจำกัด"
+            label="เวลาที่จะไปถึง"
+            hint="ถ้าไปถึงก่อนเวลานี้ แผนจะนับเป็นเวลารอ เว้นว่างได้ถ้าไม่มีเวลาตายตัว"
           >
-            <span className="inline-block w-32">
-              <TextInput
-                type="time"
-                value={stop.notBeforeLocalTime?.slice(0, 5) ?? ''}
-                disabled={busy}
-                onChange={(event) =>
-                  onUpdate({ notBeforeLocalTime: event.target.value || null })
-                }
-              />
-            </span>
+            <TimeField
+              value={stop.notBeforeLocalTime?.slice(0, 5) ?? null}
+              disabled={busy}
+              clearable
+              onChange={(next) => onUpdate({ notBeforeLocalTime: next })}
+              hourLabel="ชั่วโมงที่จะไปถึง"
+              minuteLabel="นาทีที่จะไปถึง"
+            />
           </Field>
 
           <Field label="โน้ต">

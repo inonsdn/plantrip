@@ -94,7 +94,14 @@ export type ExpenseSplitRow = {
   updated_at: string;
 }
 
-export type TransportModeDb = 'driving' | 'transit' | 'walking';
+export type TransportModeDb =
+  | 'walking'
+  | 'driving'
+  | 'taxi'
+  | 'transit'
+  | 'train'
+  | 'flight'
+  | 'ferry';
 
 export type ItineraryDayRow = {
   id: string;
@@ -117,8 +124,10 @@ export type ItineraryStopRow = {
   place_id: string | null;
   name: string;
   address: string | null;
-  latitude: DbNumeric;
-  longitude: DbNumeric;
+  // Optional: a stop is useful with nothing but a name. Kept for a map or a
+  // routing provider, neither of which is configured today.
+  latitude: DbNumeric | null;
+  longitude: DbNumeric | null;
   visit_duration_minutes: number;
   not_before_local_time: string | null;
   enabled: boolean;
@@ -232,10 +241,7 @@ export type Database = {
       };
       itinerary_stops: {
         Row: ItineraryStopRow;
-        Insert: Pick<
-          ItineraryStopRow,
-          'day_id' | 'trip_id' | 'name' | 'latitude' | 'longitude'
-        > &
+        Insert: Pick<ItineraryStopRow, 'day_id' | 'trip_id' | 'name'> &
           Partial<Omit<ItineraryStopRow, 'day_id' | 'trip_id' | 'name'>>;
         Update: Partial<Omit<ItineraryStopRow, 'id'>>;
         Relationships: [];
