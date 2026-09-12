@@ -13,9 +13,13 @@
   --color-line: #e2e8f0;
   --color-line-strong: #cbd5e1;
   --color-muted: #64748b;
-  --color-brand: #0d9488;
-  --color-brand-strong: #0f766e;
-  --color-brand-soft: #e6f6f4;
+  /* Lavender mist. #e6e6fa is the colour itself and carries the soft tints;
+     actions need a deeper violet so white label text stays readable
+     (contrast vs white: brand 5.96, brand-strong 6.46; brand-strong on
+     brand-soft 5.25 — all above the 4.5 minimum). */
+  --color-brand: #6750c4;
+  --color-brand-strong: #5b4bc4;
+  --color-brand-soft: #e6e6fa;
   --color-accent: #f26a4b;
   --color-accent-soft: #fef0ec;
   --color-positive: #0f8f6c;

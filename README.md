@@ -67,7 +67,7 @@ Thai; code, schema and this document are in English.
 | Area | Choice |
 | --- | --- |
 | Framework | Next.js 16 (App Router, React 19, TypeScript strict) |
-| Styling | Tailwind CSS v4 |
+| Styling | Tailwind CSS v4 (lavender brand palette in `src/app/globals.css`) |
 | Database & auth | Supabase (PostgreSQL + Supabase Auth, Google provider) |
 | Session handling | `@supabase/ssr` |
 | Validation | Zod |

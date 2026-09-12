@@ -24,7 +24,10 @@ import { useTripUi } from './trip-shell';
 
 type View = 'overview' | 'details';
 
-/** Switches the category breakdown between the whole trip and just my share. */
+/**
+ * Switches the category breakdown between the whole trip and just my share.
+ * Both options stay on screen so the current one is never ambiguous.
+ */
 function CategoryScopeToggle({
   mineOnly,
   onChange,
@@ -33,18 +36,30 @@ function CategoryScopeToggle({
   onChange: (mineOnly: boolean) => void;
 }) {
   return (
-    <button
-      type="button"
-      aria-pressed={mineOnly}
-      onClick={() => onChange(!mineOnly)}
-      className={`min-h-8 rounded-lg border px-2.5 text-xs font-medium transition-colors ${
-        mineOnly
-          ? 'border-brand bg-brand-soft text-brand-strong'
-          : 'border-line-strong bg-surface text-muted hover:bg-canvas'
-      }`}
+    <div
+      role="group"
+      aria-label="ขอบเขตของยอดตามหมวดหมู่"
+      className="inline-flex rounded-lg border border-line bg-surface p-0.5"
     >
-      ของฉัน
-    </button>
+      {(
+        [
+          [false, 'ทั้งทริป'],
+          [true, 'ของฉัน'],
+        ] as const
+      ).map(([value, label]) => (
+        <button
+          key={label}
+          type="button"
+          aria-pressed={mineOnly === value}
+          onClick={() => onChange(value)}
+          className={`min-h-8 rounded-md px-2.5 text-xs font-medium transition-colors ${
+            mineOnly === value ? 'bg-brand-soft text-brand-strong' : 'text-muted hover:text-ink'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -63,8 +78,6 @@ export function TripDashboard({
   const [view, setView] = useState<View>('overview');
   const [categoryMineOnly, setCategoryMineOnly] = useState(false);
   const categories = categoryMineOnly ? myCategoryTotals : stats.byCategory;
-  // Never leave the state to colour alone.
-  const categoryScopeLabel = categoryMineOnly ? 'เฉพาะส่วนของฉัน' : 'ทั้งทริป';
   const { trip, members, allMembers } = context;
   const currency = trip.baseCurrency;
 
@@ -190,7 +203,6 @@ export function TripDashboard({
           <Card>
             <CardHeader
               title="ค่าใช้จ่ายตามหมวดหมู่"
-              description={categoryScopeLabel}
               action={
                 <CategoryScopeToggle mineOnly={categoryMineOnly} onChange={setCategoryMineOnly} />
               }
@@ -277,7 +289,6 @@ export function TripDashboard({
           <Card>
             <CardHeader
               title="ทุกหมวดหมู่"
-              description={categoryScopeLabel}
               action={
                 <CategoryScopeToggle mineOnly={categoryMineOnly} onChange={setCategoryMineOnly} />
               }
