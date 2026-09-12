@@ -63,8 +63,9 @@ export const CATEGORY_META: Record<ExpenseCategory, CategoryMeta> = {
     key: 'tickets',
     label: 'ตั๋วและกิจกรรม',
     icon: 'ticket',
-    chipClass: 'bg-violet-50 text-violet-800 border-violet-200',
-    barClass: 'bg-violet-400',
+    // Moved off violet so it is not mistaken for the lavender brand colour.
+    chipClass: 'bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200',
+    barClass: 'bg-fuchsia-400',
   },
   shopping: {
     key: 'shopping',
