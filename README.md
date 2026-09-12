@@ -60,14 +60,16 @@ Thai; code, schema and this document are in English.
   “โอนแล้ว” on money owed to someone else only files a claim; nothing counts as
   settled until the person being paid confirms it arrived. Undoing a payment
   removes it, so the history only ever lists transfers that stand.
-- **Visual itinerary planner.** Each day is an ordered list of stops beside a
-  map, with a journey between every pair. Per-leg mode (รถส่วนตัว / รถสาธารณะ /
-  เดิน), drag or keyboard reordering, move to another day, and a stop can be
-  taken out of the plan without being deleted. Arrival and departure times are
-  computed once from the day's start time, the travel times and how long you
-  spend at each stop — never stored, never guessed: a leg with no route and no
-  manual time is reported as unknown rather than counted as zero.
-- **Routes can become expenses, but never on their own.** A fare a provider
+- **Itinerary planner.** Each day is an ordered list of places with a journey
+  between every pair. Type a name, when you mean to get there and how long you
+  are staying — nothing else is required. Seven ways to travel per leg (เดิน,
+  รถส่วนตัว, แท็กซี่, รถสาธารณะ, รถไฟ, เครื่องบิน, เรือ), drag the grip to
+  reorder (with a finger too, not only a mouse), move a place to another day,
+  and take one out of the plan without deleting it. Arrival and departure times
+  are computed once from the day's start time, the travel times and how long
+  you spend at each stop — never stored, never guessed: a leg with no travel
+  time is reported as unknown rather than counted as zero.
+- **Journeys can become expenses, but never on their own.** A fare a provider
   quotes is labelled “ประมาณการ” and stays out of every total.
   “บันทึกเป็นค่าใช้จ่าย” opens the ordinary expense form prefilled, and nothing
   is recorded until the real amount, payer and split are confirmed. Editing or
@@ -134,6 +136,7 @@ order:
 | `20240101000800_itinerary_rls.sql` | RLS on every itinerary table, plus `bump_itinerary_day`, `reorder_itinerary_stops` and `move_itinerary_stop` |
 | `20240101000900_itinerary_budget.sql` | `itinerary_request_budget` and `consume_itinerary_budget` — the server-side daily ceiling on outbound routing calls |
 | `20240101001000_save_expense_itinerary.sql` | `save_expense` carries the optional itinerary reference |
+| `20240101001100_itinerary_modes.sql` | Adds เครื่องบิน / รถไฟ / เรือ / แท็กซี่ to `transport_mode`, and makes a stop's coordinates optional |
 
 **Option A — Supabase CLI (recommended):**
 
@@ -224,8 +227,6 @@ open redirect.
 | `SUPABASE_SERVICE_ROLE_KEY` | — | **no** | Not used. Joining a trip runs through a `SECURITY DEFINER` function instead |
 | `ITINERARY_ROUTE_PROVIDER` | — | no | Routing/places provider id. Unset (or `none`) means routing is switched off and every leg says so |
 | `ITINERARY_DAILY_ROUTE_BUDGET` | — | no | Outbound routing calls allowed per UTC day across the whole application. Default `500`; `0` disables routing entirely |
-| `NEXT_PUBLIC_MAP_TILE_URL` | — | no | XYZ raster tile template, e.g. `https://tiles.example/{z}/{x}/{y}.png`. Unset means the map draws stops and routes on a plain grid and says the base map is not configured |
-| `NEXT_PUBLIC_MAP_ATTRIBUTION` | — | no | Attribution line the tile provider's terms require; shown on the map |
 
 **No `NEXT_PUBLIC_` prefix is needed.** Only one component talks to Supabase
 from the browser — the Google sign-in button — and the sign-in page hands it the
@@ -241,11 +242,13 @@ restart.
 ## Itinerary planner and routing providers
 
 `/trips/<id>/itinerary` ("แผนการเดินทาง") plans each day as an ordered list of
-stops with the journeys between them, next to a map.
+places with the journeys between them.
 
 **What is stored, and what is derived.** `itinerary_days` holds the day's local
 start time, IANA time zone, default transport mode and an optimistic-concurrency
-`version`. `itinerary_stops` holds the places and how long to spend at each.
+`version`. `itinerary_stops` holds the places, how long to spend at each, and when you
+mean to arrive. Coordinates are optional — a place typed by hand has none — and
+are kept only for a future map or routing provider.
 `itinerary_leg_preferences` holds one row per **ordered pair of stops** — its
 mode, chosen route, manual duration and map visibility. Arrival, departure,
 waiting and totals are **never stored**: `src/lib/itinerary/schedule.ts` is the
@@ -257,16 +260,13 @@ or disabling a stop can never hand one journey's saved route to a different
 journey — the key simply stops matching and the new pair takes the day's default.
 Put the order back and the saved settings come back with it.
 
-**Two different switches.** "รวมในแผน" excludes a stop from the plan: the day
-recomputes as if it were not there (A→B→C becomes A→C) while the stop and its
-data stay. "แสดงบนแผนที่" only hides a route line; it changes nothing about the
-schedule or the totals.
+**"รวมในแผน"** excludes a stop from the plan: the day recomputes as if it were
+not there (A→B→C becomes A→C) while the stop and its data stay.
 
-**This deployment runs with no routing provider and no base map tiles**, by
-choice: travel times are entered by hand per leg and the map shows stops and
-route lines on a plain background. Nothing has to be configured for the planner
-to work, and there is no third-party bill. The sections below describe what
-changes if you ever want to connect one.
+**This deployment runs with no routing provider and no map**, by choice: the
+plan is a hand-written list and travel times are entered per leg. Nothing has to
+be configured for the planner to work, and there is no third-party bill. The
+sections below describe what changes if you ever want to connect a provider.
 
 **No routing provider is configured out of the box.** Without
 `ITINERARY_ROUTE_PROVIDER`, `getRouteProvider()` returns a provider that answers
@@ -278,8 +278,9 @@ reported as "ยังคำนวณไม่ได้" rather than silently as
 under "ระบุเวลาเอง" to complete the plan by hand.
 
 In this mode the planner makes **no outbound requests at all**: place search is
-hidden in favour of adding a stop by map pin or coordinates, and an unset travel
-time reads as "ยังไม่ได้ระบุเวลาเดินทาง" rather than as a provider failure.
+hidden in favour of typing a name, and an unset travel time reads as
+"ยังไม่ได้ระบุเวลาเดินทาง" rather than as a provider failure. A leg is only ever
+sent to a provider when both of its places have coordinates.
 
 **Adding a provider.** Implement `RouteProvider`
 (`src/lib/itinerary/providers/types.ts`) and register it in
@@ -322,11 +323,6 @@ billing rules, minimum charges, or calls made with the same key by anything
 else. Restrict the provider key to your own domain and set a hard spend cap in
 the provider's console if it offers one; neither this application nor a billing
 alert can stop charges on its own.
-
-**Base map tiles.** The map draws its own markers and route lines and needs no
-map library. Set `NEXT_PUBLIC_MAP_TILE_URL` (and the attribution its terms
-require) to put raster tiles underneath; without it the map says so instead of
-pretending.
 
 ## Local development
 
