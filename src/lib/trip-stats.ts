@@ -62,6 +62,45 @@ export function toCalcSettlement(settlement: SettlementView): CalcSettlement {
   };
 }
 
+/**
+ * Category totals, either for the whole trip or for one member's own share.
+ *
+ * With a memberId the amount is that member's split of each expense, and the
+ * share percentages are relative to their own total rather than the trip's.
+ */
+export function computeCategoryTotals(
+  expenses: readonly ExpenseView[],
+  memberId?: string | null,
+): CategoryTotal[] {
+  const totals = new Map<string, number>();
+  let grandTotal = 0;
+
+  for (const expense of expenses) {
+    const amountMinor = memberId
+      ? expense.splits
+          .filter((split) => split.memberId === memberId)
+          .reduce((total, split) => total + split.amountMinor, 0)
+      : expense.baseAmountMinor;
+
+    if (amountMinor === 0) continue;
+    totals.set(expense.category, (totals.get(expense.category) ?? 0) + amountMinor);
+    grandTotal += amountMinor;
+  }
+
+  return [...totals.entries()]
+    .map(([category, amountMinor]) => {
+      const meta = categoryMeta(category);
+      return {
+        category,
+        label: meta.label,
+        barClass: meta.barClass,
+        amountMinor,
+        share: grandTotal > 0 ? amountMinor / grandTotal : 0,
+      };
+    })
+    .sort((a, b) => b.amountMinor - a.amountMinor || a.category.localeCompare(b.category));
+}
+
 export function computeTripStats(
   expenses: readonly ExpenseView[],
   memberIds: readonly string[],
@@ -72,18 +111,12 @@ export function computeTripStats(
   let preTripMinor = 0;
   let settlementTotalMinor = 0;
 
-  const categoryTotals = new Map<string, number>();
   const dayTotals = new Map<string, DayTotal>();
 
   for (const expense of expenses) {
     totalMinor += expense.baseAmountMinor;
     if (isPreTripExpense(expense, tripStartDate)) preTripMinor += expense.baseAmountMinor;
     if (expense.includedInSettlement) settlementTotalMinor += expense.baseAmountMinor;
-
-    categoryTotals.set(
-      expense.category,
-      (categoryTotals.get(expense.category) ?? 0) + expense.baseAmountMinor,
-    );
 
     const day = dayTotals.get(expense.expenseDate) ?? {
       date: expense.expenseDate,
@@ -97,18 +130,7 @@ export function computeTripStats(
     dayTotals.set(expense.expenseDate, day);
   }
 
-  const byCategory: CategoryTotal[] = [...categoryTotals.entries()]
-    .map(([category, amountMinor]) => {
-      const meta = categoryMeta(category);
-      return {
-        category,
-        label: meta.label,
-        barClass: meta.barClass,
-        amountMinor,
-        share: totalMinor > 0 ? amountMinor / totalMinor : 0,
-      };
-    })
-    .sort((a, b) => b.amountMinor - a.amountMinor || a.category.localeCompare(b.category));
+  const byCategory = computeCategoryTotals(expenses);
 
   const byDay = [...dayTotals.values()].sort((a, b) => a.date.localeCompare(b.date));
 
