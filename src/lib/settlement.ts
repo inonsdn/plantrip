@@ -44,8 +44,12 @@ export interface MemberBalance {
   netMinor: number;
 }
 
-export interface Transfer {
+/** One member's debt to the payer of a single expense. */
+export interface ExpenseDebt {
+  expenseId: string;
+  /** Owes the money. */
   fromMemberId: string;
+  /** Paid for the expense. */
   toMemberId: string;
   amountMinor: number;
 }
@@ -134,51 +138,37 @@ export function computeBalances(
   return ordered;
 }
 
-/**
- * Greedy debt simplification: repeatedly settle the largest debtor against the
- * largest creditor. Produces at most `members - 1` transfers.
- *
- * Ordering is fully deterministic (amount desc, then member id asc) so the same
- * balances always yield the same instructions.
- */
-export function simplifyDebts(balances: readonly MemberBalance[]): Transfer[] {
-  const creditors = balances
-    .filter((balance) => balance.netMinor > 0)
-    .map((balance) => ({ memberId: balance.memberId, amount: balance.netMinor }))
-    .sort((a, b) => b.amount - a.amount || a.memberId.localeCompare(b.memberId));
-
-  const debtors = balances
-    .filter((balance) => balance.netMinor < 0)
-    .map((balance) => ({ memberId: balance.memberId, amount: -balance.netMinor }))
-    .sort((a, b) => b.amount - a.amount || a.memberId.localeCompare(b.memberId));
-
-  const transfers: Transfer[] = [];
-  let creditorIndex = 0;
-  let debtorIndex = 0;
-
-  while (creditorIndex < creditors.length && debtorIndex < debtors.length) {
-    const creditor = creditors[creditorIndex];
-    const debtor = debtors[debtorIndex];
-    const amount = Math.min(creditor.amount, debtor.amount);
-
-    if (amount > 0) {
-      transfers.push({
-        fromMemberId: debtor.memberId,
-        toMemberId: creditor.memberId,
-        amountMinor: amount,
-      });
-    }
-
-    creditor.amount -= amount;
-    debtor.amount -= amount;
-    if (creditor.amount === 0) creditorIndex += 1;
-    if (debtor.amount === 0) debtorIndex += 1;
-  }
-
-  return transfers;
-}
-
 /** Net balances must always cancel out; used by tests and as a runtime guard. */
 export function balancesAreZeroSum(balances: readonly MemberBalance[]): boolean {
   return balances.reduce((total, balance) => total + balance.netMinor, 0) === 0;
+}
+
+/**
+ * Every debt an expense creates, one row per member who owes its payer.
+ *
+ * Unlike simplifyDebts this nets nothing: each expense is listed on its own so
+ * it can be settled individually. Expenses excluded from settlement, and the
+ * payer's own share, produce no rows.
+ */
+export function computeExpenseDebts(expenses: readonly CalcExpense[]): ExpenseDebt[] {
+  const debts: ExpenseDebt[] = [];
+
+  for (const expense of expenses) {
+    if (!expense.includedInSettlement) continue;
+    const payer = expense.payerMemberId;
+    if (!payer) continue;
+
+    for (const split of expense.splits) {
+      if (split.memberId === payer) continue;
+      if (split.amountMinor <= 0) continue;
+      debts.push({
+        expenseId: expense.id,
+        fromMemberId: split.memberId,
+        toMemberId: payer,
+        amountMinor: split.amountMinor,
+      });
+    }
+  }
+
+  return debts;
 }

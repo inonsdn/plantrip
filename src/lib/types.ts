@@ -68,6 +68,8 @@ export interface ExpenseView {
 
 export interface SettlementView {
   id: string;
+  /** Set when this payment settles one specific expense. */
+  expenseId: string | null;
   fromMemberId: string;
   toMemberId: string;
   amountMinor: number;
