@@ -24,6 +24,14 @@ export function useTripUi(): TripUiValue {
   return value;
 }
 
+/**
+ * The itinerary tab supplies its own "เพิ่มสถานที่" button in the same corner,
+ * so the trip-wide add-expense button stands down while it is open.
+ */
+export function showsAddExpenseButton(pathname: string, tripId: string): boolean {
+  return !pathname.startsWith(`/trips/${tripId}/itinerary`);
+}
+
 const TABS = [
   { key: 'overview', label: 'ภาพรวม', href: '', icon: LayoutDashboard },
   { key: 'expenses', label: 'ค่าใช้จ่าย', href: '/expenses', icon: ReceiptText },
@@ -64,6 +72,8 @@ export function TripShell({
     [context, openExpense, openShare],
   );
 
+  const showExpenseButton = showsAddExpenseButton(pathname, context.trip.id);
+
   const tabs = TABS.map((tab) => {
     const href = `${base}${tab.href}`;
     const active = tab.href === '' ? pathname === base : pathname.startsWith(href);
@@ -98,14 +108,16 @@ export function TripShell({
       </main>
 
       {/* Floating add button: reachable with one thumb on mobile. */}
-      <button
-        type="button"
-        onClick={() => openExpense(null)}
-        className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] right-4 z-40 inline-flex min-h-14 items-center gap-2 rounded-full bg-brand px-5 text-base font-semibold text-white shadow-lg shadow-ink/20 transition-colors hover:bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-strong sm:bottom-6"
-      >
-        <Plus aria-hidden className="size-5" />
-        เพิ่มค่าใช้จ่าย
-      </button>
+      {showExpenseButton ? (
+        <button
+          type="button"
+          onClick={() => openExpense(null)}
+          className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] right-4 z-40 inline-flex min-h-14 items-center gap-2 rounded-full bg-brand px-5 text-base font-semibold text-white shadow-lg shadow-ink/20 transition-colors hover:bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-strong sm:bottom-6"
+        >
+          <Plus aria-hidden className="size-5" />
+          เพิ่มค่าใช้จ่าย
+        </button>
+      ) : null}
 
       <nav
         aria-label="เมนูหลัก"

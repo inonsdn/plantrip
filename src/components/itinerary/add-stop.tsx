@@ -4,8 +4,8 @@ import { useRef, useState } from 'react';
 import { Loader2, MapPinPlus, Plus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Field, TextInput } from '@/components/ui/field';
-import { formatDuration } from '@/lib/itinerary/schedule';
 import type { PlaceResult, PlaceSearchResult } from '@/lib/itinerary/providers/types';
+import { DurationField } from './duration-field';
 import { TimeField } from './time-field';
 
 export interface NewStopInput {
@@ -15,17 +15,15 @@ export interface NewStopInput {
   longitude: number | null;
   placeProvider: string;
   placeId: string | null;
-  visitDurationMinutes: number;
+  visitDurationMinutes: number | null;
   notBeforeLocalTime: string | null;
 }
-
-const DURATION_SHORTCUTS = [15, 30, 60, 120] as const;
 
 /**
  * Adding a place asks for a place: a name, when you mean to get there, and how
  * long you are staying. No money, and no coordinates — the plan is a list.
  */
-export function AddStopPanel({
+export function AddStopForm({
   tripId,
   searchEnabled,
   busy,
@@ -39,7 +37,7 @@ export function AddStopPanel({
 }) {
   const [name, setName] = useState('');
   const [arriveAt, setArriveAt] = useState<string | null>(null);
-  const [duration, setDuration] = useState(60);
+  const [duration, setDuration] = useState<number | null>(60);
   const [error, setError] = useState<string | null>(null);
 
   const [query, setQuery] = useState('');
@@ -122,12 +120,10 @@ export function AddStopPanel({
   }
 
   return (
-    <div className="rounded-xl border border-line bg-surface p-4">
-      <h2 className="text-sm font-semibold text-ink">เพิ่มสถานที่</h2>
-
+    <div>
       {searchEnabled ? (
         <>
-          <form onSubmit={runSearch} className="mt-3 flex items-start gap-2">
+          <form onSubmit={runSearch} className="flex items-start gap-2">
             <span className="min-w-0 flex-1">
               <TextInput
                 value={query}
@@ -181,7 +177,7 @@ export function AddStopPanel({
         </>
       ) : null}
 
-      <form onSubmit={submit} className="mt-3 space-y-4">
+      <form onSubmit={submit} className={searchEnabled ? 'mt-4 space-y-4' : 'space-y-4'}>
         <Field label="ชื่อสถานที่" error={error} required>
           <TextInput
             value={name}
@@ -205,42 +201,13 @@ export function AddStopPanel({
           />
         </Field>
 
-        <Field label="อยู่ที่นี่นานเท่าไร">
-          <div className="flex flex-wrap items-center gap-2">
-            {DURATION_SHORTCUTS.map((minutes) => (
-              <button
-                key={minutes}
-                type="button"
-                disabled={busy}
-                onClick={() => setDuration(minutes)}
-                aria-pressed={duration === minutes}
-                className={`inline-flex min-h-9 items-center rounded-full border px-3 text-sm font-medium ${
-                  duration === minutes
-                    ? 'border-brand bg-brand-soft text-brand-strong'
-                    : 'border-line-strong bg-surface text-ink hover:bg-canvas'
-                }`}
-              >
-                {formatDuration(minutes)}
-              </button>
-            ))}
-            <span className="inline-flex items-center gap-1.5">
-              <span className="w-20">
-                <TextInput
-                  inputMode="numeric"
-                  aria-label="เวลาที่อยู่ (นาที)"
-                  value={String(duration)}
-                  disabled={busy}
-                  onChange={(event) => {
-                    const parsed = Number(event.target.value);
-                    if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 1440) {
-                      setDuration(Math.round(parsed));
-                    }
-                  }}
-                />
-              </span>
-              <span className="text-sm text-muted">นาที</span>
-            </span>
-          </div>
+        <Field label="อยู่ที่นี่นานเท่าไร" hint="เลือกไม่ระบุได้ถ้ายังไม่รู้">
+          <DurationField
+            value={duration}
+            disabled={busy}
+            onChange={setDuration}
+            label="เวลาที่อยู่ (นาที)"
+          />
         </Field>
 
         <Button type="submit" disabled={busy}>

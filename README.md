@@ -63,12 +63,14 @@ Thai; code, schema and this document are in English.
 - **Itinerary planner.** Each day is an ordered list of places with a journey
   between every pair. Type a name, when you mean to get there and how long you
   are staying — nothing else is required. Seven ways to travel per leg (เดิน,
-  รถส่วนตัว, แท็กซี่, รถสาธารณะ, รถไฟ, เครื่องบิน, เรือ), drag the grip to
-  reorder (with a finger too, not only a mouse), move a place to another day,
-  and take one out of the plan without deleting it. Arrival and departure times
-  are computed once from the day's start time, the travel times and how long
-  you spend at each stop — never stored, never guessed: a leg with no travel
-  time is reported as unknown rather than counted as zero.
+  รถส่วนตัว, แท็กซี่, รถสาธารณะ, รถไฟ, เครื่องบิน, เรือ), drag a card by its
+  numbered rail to reorder it (with a finger too, not only a mouse), move a
+  place to another day, and take one out of the plan without deleting it.
+  Arrival and departure times are computed once from the day's start time, the
+  travel times and how long you spend at each stop — never stored, never
+  guessed. Both a journey with no travel time and a stop whose stay is
+  “ไม่ระบุ” are reported as unknown, and every time after them with them,
+  rather than being counted as zero.
 - **Journeys can become expenses, but never on their own.** A fare a provider
   quotes is labelled “ประมาณการ” and stays out of every total.
   “บันทึกเป็นค่าใช้จ่าย” opens the ordinary expense form prefilled, and nothing
@@ -137,6 +139,7 @@ order:
 | `20240101000900_itinerary_budget.sql` | `itinerary_request_budget` and `consume_itinerary_budget` — the server-side daily ceiling on outbound routing calls |
 | `20240101001000_save_expense_itinerary.sql` | `save_expense` carries the optional itinerary reference |
 | `20240101001100_itinerary_modes.sql` | Adds เครื่องบิน / รถไฟ / เรือ / แท็กซี่ to `transport_mode`, and makes a stop's coordinates optional |
+| `20240101001200_optional_visit_duration.sql` | "อยู่ที่นี่นานเท่าไร" may be left unanswered |
 
 **Option A — Supabase CLI (recommended):**
 
@@ -246,8 +249,8 @@ places with the journeys between them.
 
 **What is stored, and what is derived.** `itinerary_days` holds the day's local
 start time, IANA time zone, default transport mode and an optimistic-concurrency
-`version`. `itinerary_stops` holds the places, how long to spend at each, and when you
-mean to arrive. Coordinates are optional — a place typed by hand has none — and
+`version`. `itinerary_stops` holds the places, how long to spend at each (null when that
+is left unanswered), and when you mean to arrive. Coordinates are optional — a place typed by hand has none — and
 are kept only for a future map or routing provider.
 `itinerary_leg_preferences` holds one row per **ordered pair of stops** — its
 mode, chosen route, manual duration and map visibility. Arrival, departure,

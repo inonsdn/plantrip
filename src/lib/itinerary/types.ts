@@ -10,7 +10,7 @@ export interface ItineraryStopView {
   address: string | null;
   latitude: number | null;
   longitude: number | null;
-  visitDurationMinutes: number;
+  visitDurationMinutes: number | null;
   notBeforeLocalTime: string | null;
   enabled: boolean;
   notes: string | null;
