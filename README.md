@@ -154,6 +154,13 @@ migration in a single transaction, so a fresh project either gets the whole
 schema or nothing. The bundle is generated on demand and git-ignored — the
 migrations stay the only source of truth.
 
+On a project that already has some migrations applied, bundle only what is
+left — re-running an applied migration fails on objects that already exist:
+
+```bash
+npm run db:bundle -- --from 20240101000700   # the itinerary planner onwards
+```
+
 **Option C — psql:**
 
 ```bash
