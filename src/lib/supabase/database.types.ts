@@ -128,7 +128,8 @@ export type ItineraryStopRow = {
   // routing provider, neither of which is configured today.
   latitude: DbNumeric | null;
   longitude: DbNumeric | null;
-  visit_duration_minutes: number;
+  /** null when "อยู่ที่นี่นานเท่าไร" was left unanswered. */
+  visit_duration_minutes: number | null;
   not_before_local_time: string | null;
   enabled: boolean;
   notes: string | null;

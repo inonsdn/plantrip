@@ -108,7 +108,7 @@ const addStopSchema = z.object({
   notBeforeLocalTime: z.union([localTime, z.null()]).optional(),
   placeProvider: z.string().max(32).default('manual'),
   placeId: z.string().max(200).nullable().optional(),
-  visitDurationMinutes: z.number().int().min(0).max(1440).default(60),
+  visitDurationMinutes: z.number().int().min(0).max(1440).nullable().optional(),
   expectedVersion: z.number().int().positive().optional(),
 });
 
@@ -165,7 +165,7 @@ export async function addItineraryStopAction(
       address: value.address ?? null,
       latitude: value.latitude ?? null,
       longitude: value.longitude ?? null,
-      visit_duration_minutes: value.visitDurationMinutes,
+      visit_duration_minutes: value.visitDurationMinutes ?? null,
       not_before_local_time: value.notBeforeLocalTime ?? null,
       created_by: user?.id ?? null,
     })
@@ -182,7 +182,7 @@ const updateStopSchema = z.object({
   stopId: z.string().uuid(),
   name: z.string().trim().min(1).max(160).optional(),
   notes: z.string().trim().max(1000).nullable().optional(),
-  visitDurationMinutes: z.number().int().min(0).max(1440).optional(),
+  visitDurationMinutes: z.number().int().min(0).max(1440).nullable().optional(),
   notBeforeLocalTime: z.union([localTime, z.null()]).optional(),
   enabled: z.boolean().optional(),
   expectedVersion: z.number().int().positive().optional(),

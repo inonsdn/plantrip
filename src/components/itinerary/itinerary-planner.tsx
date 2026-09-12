@@ -2,8 +2,9 @@
 
 import { useCallback, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { CalendarDays, MapPin, MoonStar } from 'lucide-react';
+import { CalendarDays, MapPin, MoonStar, Plus } from 'lucide-react';
 import { Field, Select } from '@/components/ui/field';
+import { Sheet } from '@/components/ui/sheet';
 import { EmptyState } from '@/components/ui/states';
 import { useToast } from '@/components/ui/toast';
 import { useTripUi } from '@/components/trip/trip-shell';
@@ -34,7 +35,7 @@ import {
   updateItineraryStopAction,
 } from '@/lib/actions/itinerary';
 import type { ActionResult } from '@/lib/actions/result';
-import { AddStopPanel, type NewStopInput } from './add-stop';
+import { AddStopForm, type NewStopInput } from './add-stop';
 import { useReorder } from './use-reorder';
 import { LegRow } from './leg-row';
 import { StopCard } from './stop-card';
@@ -67,6 +68,7 @@ export function ItineraryPlanner({
   const [pending, startTransition] = useTransition();
 
   const [selectedDayId, setSelectedDayId] = useState<string | null>(days[0]?.id ?? null);
+  const [addOpen, setAddOpen] = useState(false);
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
   const [selectedLegKey, setSelectedLegKey] = useState<string | null>(null);
   // A day that disappears (deleted elsewhere) must not leave the panel blank.
@@ -250,7 +252,7 @@ export function ItineraryPlanner({
           expectedVersion: day.version,
           ...input,
         }),
-      { success: 'เพิ่มสถานที่แล้ว' },
+      { success: 'เพิ่มสถานที่แล้ว', onSuccess: () => setAddOpen(false) },
     );
   }
 
@@ -259,7 +261,7 @@ export function ItineraryPlanner({
     patch: {
       name?: string;
       notes?: string | null;
-      visitDurationMinutes?: number;
+      visitDurationMinutes?: number | null;
       notBeforeLocalTime?: string | null;
       enabled?: boolean;
     },
@@ -519,18 +521,11 @@ export function ItineraryPlanner({
         ) : null}
       </div>
 
-      <AddStopPanel
-        tripId={tripId}
-        searchEnabled={routingConfigured}
-        busy={pending}
-        onAdd={addStop}
-      />
-
       {stops.length === 0 ? (
         <EmptyState
           icon={<MapPin className="size-8" />}
           title="ยังไม่มีสถานที่ในวันนี้"
-          description="เพิ่มสถานที่แรกด้านบน แล้วลากการ์ดเพื่อจัดลำดับได้"
+          description="กดปุ่ม เพิ่มสถานที่ มุมขวาล่าง แล้วลากการ์ดเพื่อจัดลำดับได้"
         />
       ) : (
         <ol className="space-y-1">
@@ -673,6 +668,33 @@ export function ItineraryPlanner({
 
       {panel}
 
+      {/* Replaces the trip-wide add-expense button while this tab is open, so
+          the page itself is just the summary and the list. */}
+      <button
+        type="button"
+        onClick={() => setAddOpen(true)}
+        className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] right-4 z-40 inline-flex min-h-14 items-center gap-2 rounded-full bg-brand px-5 text-base font-semibold text-white shadow-lg shadow-ink/20 transition-colors hover:bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-strong sm:bottom-6"
+      >
+        <Plus aria-hidden className="size-5" />
+        เพิ่มสถานที่
+      </button>
+
+      <Sheet
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title="เพิ่มสถานที่"
+        description={formatDateWithWeekday(day.localDate)}
+        size="lg"
+      >
+        {addOpen ? (
+          <AddStopForm
+            tripId={tripId}
+            searchEnabled={routingConfigured}
+            busy={pending}
+            onAdd={addStop}
+          />
+        ) : null}
+      </Sheet>
     </div>
   );
 }

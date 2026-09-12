@@ -43,7 +43,8 @@ export interface LegTravel {
 
 export interface ScheduleStopInput {
   id: string;
-  visitMinutes: number;
+  /** null when "อยู่ที่นี่นานเท่าไร" is left unanswered. */
+  visitMinutes: number | null;
   /** "ถึงไม่ก่อนเวลา", minutes since local midnight, or null. */
   notBeforeMinutes: number | null;
   enabled: boolean;
@@ -62,7 +63,7 @@ export interface ScheduleStopResult {
   departureMinutes: number | null;
   /** Idle time forced by "ถึงไม่ก่อนเวลา". */
   waitMinutes: number;
-  visitMinutes: number;
+  visitMinutes: number | null;
   /** True when an upstream travel time is unknown, so this time cannot be known. */
   incomplete: boolean;
 }
@@ -162,17 +163,20 @@ export function computeDaySchedule(input: ScheduleInput): DaySchedule {
         visitMinutes: stop.visitMinutes,
         incomplete: true,
       });
-      visitTotal += stop.visitMinutes;
+      if (stop.visitMinutes !== null) visitTotal += stop.visitMinutes;
       previousDeparture = null;
       continue;
     }
 
     // "ถึงไม่ก่อนเวลา": arriving early turns into waiting, not an early start.
-    const wait =
+    const wait: number =
       stop.notBeforeMinutes !== null && arrival < stop.notBeforeMinutes
         ? stop.notBeforeMinutes - arrival
         : 0;
-    const departure: number = arrival + wait + stop.visitMinutes;
+    // No visit duration means no known departure — and so no known arrival at
+    // anything after it. Treating "ไม่ระบุ" as zero would invent a timeline.
+    const departure: number | null =
+      stop.visitMinutes === null ? null : arrival + wait + stop.visitMinutes;
 
     stops.push({
       stopId: stop.id,
@@ -183,8 +187,9 @@ export function computeDaySchedule(input: ScheduleInput): DaySchedule {
       incomplete: false,
     });
 
-    visitTotal += stop.visitMinutes;
+    if (stop.visitMinutes !== null) visitTotal += stop.visitMinutes;
     waitTotal += wait;
+    if (departure === null) incomplete = true;
     previousDeparture = departure;
   }
 

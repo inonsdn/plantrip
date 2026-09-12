@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Field, Select, TextArea, TextInput } from '@/components/ui/field';
+import { DurationField } from './duration-field';
 import { TimeField } from './time-field';
 import {
   formatClock,
@@ -18,8 +19,6 @@ import {
   type ScheduleStopResult,
 } from '@/lib/itinerary/schedule';
 import type { ItineraryStopView } from '@/lib/itinerary/types';
-
-const DURATION_SHORTCUTS = [15, 30, 60, 120] as const;
 
 export interface StopCardProps {
   stop: ItineraryStopView;
@@ -39,7 +38,7 @@ export interface StopCardProps {
   onUpdate: (patch: {
     name?: string;
     notes?: string | null;
-    visitDurationMinutes?: number;
+    visitDurationMinutes?: number | null;
     notBeforeLocalTime?: string | null;
   }) => void;
   onDelete: () => void;
@@ -72,7 +71,6 @@ export function StopCard({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(stop.name);
   const [notes, setNotes] = useState(stop.notes ?? '');
-  const [customDuration, setCustomDuration] = useState(String(stop.visitDurationMinutes));
   const detailsId = useId();
 
   const incomplete = timing?.incomplete ?? true;
@@ -80,39 +78,43 @@ export function StopCard({
   return (
     <li
       ref={registerElement}
-      className={`rounded-xl border bg-surface transition-shadow ${
+      className={`overflow-hidden rounded-xl border bg-surface transition-shadow ${
         selected ? 'border-brand ring-2 ring-brand/30' : 'border-line'
       } ${dragging ? 'shadow-lg shadow-ink/15 ring-2 ring-brand' : ''} ${
         stop.enabled ? '' : 'bg-canvas/60'
       }`}
     >
-      <div className="flex items-start gap-2 p-3">
-        {/* touch-none stops the page from scrolling out from under the drag. */}
+      <div className="flex items-stretch">
+        {/*
+          The whole left rail is the drag handle — the number people already
+          look at, plus a grip — so reordering is something you reach for
+          rather than something you have to discover. `touch-none` stops the
+          page scrolling out from under the drag on a phone.
+        */}
         <button
           type="button"
           disabled={busy}
           onPointerDown={onGripPointerDown}
-          className="-ml-1 mt-0.5 inline-flex size-8 shrink-0 touch-none cursor-grab items-center justify-center rounded-lg text-muted hover:bg-canvas hover:text-ink active:cursor-grabbing"
+          className="flex w-12 shrink-0 touch-none cursor-grab flex-col items-center justify-center gap-1 self-stretch rounded-l-xl border-r border-line bg-canvas/70 text-muted hover:bg-canvas hover:text-ink active:cursor-grabbing disabled:cursor-not-allowed"
         >
+          <span
+            aria-hidden
+            className={`inline-flex size-7 items-center justify-center rounded-full text-xs font-bold ${
+              stop.enabled
+                ? 'bg-brand text-white'
+                : 'border border-dashed border-line-strong text-muted'
+            }`}
+          >
+            {order ?? '—'}
+          </span>
           <GripVertical aria-hidden className="size-4" />
           <span className="sr-only">ลากเพื่อจัดลำดับ {stop.name}</span>
         </button>
 
-        <span
-          aria-hidden
-          className={`mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-            stop.enabled
-              ? 'bg-brand text-white'
-              : 'border border-dashed border-line-strong text-muted'
-          }`}
-        >
-          {order ?? '—'}
-        </span>
-
         <button
           type="button"
           onClick={onSelect}
-          className="min-w-0 flex-1 text-left"
+          className="min-w-0 flex-1 py-3 pl-3 text-left"
           aria-pressed={selected}
         >
           <p
@@ -145,7 +147,9 @@ export function StopCard({
             )}
             <span className="inline-flex items-center gap-1">
               <Clock aria-hidden className="size-3" />
-              {formatDuration(stop.visitDurationMinutes)}
+              {stop.visitDurationMinutes === null
+                ? 'ไม่ระบุเวลา'
+                : formatDuration(stop.visitDurationMinutes)}
             </span>
           </p>
         </button>
@@ -155,7 +159,7 @@ export function StopCard({
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
           aria-controls={detailsId}
-          className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-canvas hover:text-ink"
+          className="my-2 mr-2 inline-flex size-9 shrink-0 items-center justify-center self-start rounded-lg text-muted hover:bg-canvas hover:text-ink"
         >
           {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
           <span className="sr-only">{open ? 'ย่อรายละเอียด' : 'ดูรายละเอียด'}</span>
@@ -177,53 +181,12 @@ export function StopCard({
             />
           </Field>
 
-          <Field
-            label="เวลาที่ใช้ที่นี่"
-            hint="เลือกเวลาที่คุ้นเคย หรือระบุเป็นนาทีเอง"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              {DURATION_SHORTCUTS.map((minutes) => (
-                <button
-                  key={minutes}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    setCustomDuration(String(minutes));
-                    onUpdate({ visitDurationMinutes: minutes });
-                  }}
-                  className={`inline-flex min-h-9 items-center rounded-full border px-3 text-sm font-medium ${
-                    stop.visitDurationMinutes === minutes
-                      ? 'border-brand bg-brand-soft text-brand-strong'
-                      : 'border-line-strong bg-surface text-ink hover:bg-canvas'
-                  }`}
-                >
-                  {formatDuration(minutes)}
-                </button>
-              ))}
-              <span className="inline-flex items-center gap-1.5">
-                <span className="w-20">
-                  <TextInput
-                    inputMode="numeric"
-                    aria-label="เวลาที่ใช้ (นาที)"
-                    value={customDuration}
-                    disabled={busy}
-                    onChange={(event) => setCustomDuration(event.target.value)}
-                    onBlur={() => {
-                      const parsed = Number(customDuration);
-                      if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 1440) {
-                        const rounded = Math.round(parsed);
-                        if (rounded !== stop.visitDurationMinutes) {
-                          onUpdate({ visitDurationMinutes: rounded });
-                        }
-                      } else {
-                        setCustomDuration(String(stop.visitDurationMinutes));
-                      }
-                    }}
-                  />
-                </span>
-                <span className="text-sm text-muted">นาที</span>
-              </span>
-            </div>
+          <Field label="อยู่ที่นี่นานเท่าไร" hint="เลือกไม่ระบุได้ถ้ายังไม่รู้">
+            <DurationField
+              value={stop.visitDurationMinutes}
+              disabled={busy}
+              onChange={(next) => onUpdate({ visitDurationMinutes: next })}
+            />
           </Field>
 
           <Field
