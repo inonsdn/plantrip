@@ -255,6 +255,12 @@ recomputes as if it were not there (A→B→C becomes A→C) while the stop and 
 data stay. "แสดงบนแผนที่" only hides a route line; it changes nothing about the
 schedule or the totals.
 
+**This deployment runs with no routing provider and no base map tiles**, by
+choice: travel times are entered by hand per leg and the map shows stops and
+route lines on a plain background. Nothing has to be configured for the planner
+to work, and there is no third-party bill. The sections below describe what
+changes if you ever want to connect one.
+
 **No routing provider is configured out of the box.** Without
 `ITINERARY_ROUTE_PROVIDER`, `getRouteProvider()` returns a provider that answers
 `not_configured` to everything and returns **no** durations, distances or
@@ -263,6 +269,10 @@ duration would be indistinguishable from a real answer. A leg with no provider
 result and no manual duration is marked unknown, and every arrival after it is
 reported as "ยังคำนวณไม่ได้" rather than silently assuming zero. Enter a time
 under "ระบุเวลาเอง" to complete the plan by hand.
+
+In this mode the planner makes **no outbound requests at all**: place search is
+hidden in favour of adding a stop by map pin or coordinates, and an unset travel
+time reads as "ยังไม่ได้ระบุเวลาเดินทาง" rather than as a provider failure.
 
 **Adding a provider.** Implement `RouteProvider`
 (`src/lib/itinerary/providers/types.ts`) and register it in

@@ -56,9 +56,12 @@ const TIME_ZONES = [
 export function ItineraryPlanner({
   tripId,
   days,
+  routingConfigured,
 }: {
   tripId: string;
   days: ItineraryDayView[];
+  /** False when no routing provider is set up: times are entered by hand. */
+  routingConfigured: boolean;
 }) {
   const router = useRouter();
   const { showToast } = useToast();
@@ -156,7 +159,8 @@ export function ItineraryPlanner({
   );
 
   const requests = useMemo<LegRouteRequest[]>(() => {
-    if (!day) return [];
+    // Without a provider there is nothing to ask, so nothing is asked.
+    if (!day || !routingConfigured) return [];
     const timingByKey = new Map(provisional.legs.map((leg) => [leg.legKey, leg]));
 
     return legs
@@ -176,7 +180,7 @@ export function ItineraryPlanner({
         } satisfies LegRouteRequest;
       })
       .filter((request) => request !== null);
-  }, [day, legs, provisional.legs, stopById]);
+  }, [day, routingConfigured, legs, provisional.legs, stopById]);
 
   const routes = useLegRoutes(tripId, requests);
 
@@ -578,15 +582,23 @@ export function ItineraryPlanner({
         ) : null}
 
         {!schedule.totals.complete ? (
-          <p className="mt-2 rounded-lg border border-accent/30 bg-accent-soft px-2.5 py-1.5 text-xs leading-5 text-ink">
-            มีช่วงเดินทางที่ยังไม่ทราบเวลา เวลาถึงของจุดหลังจากนั้นจึงยังคำนวณไม่ได้
-            ระบุเวลาเองที่ช่วงนั้นเพื่อให้แผนสมบูรณ์
+          <p
+            className={`mt-2 rounded-lg border px-2.5 py-1.5 text-xs leading-5 ${
+              routingConfigured
+                ? 'border-accent/30 bg-accent-soft text-ink'
+                : 'border-line bg-canvas text-ink-soft'
+            }`}
+          >
+            {routingConfigured
+              ? 'มีช่วงเดินทางที่ยังไม่ทราบเวลา เวลาถึงของจุดหลังจากนั้นจึงยังคำนวณไม่ได้ ระบุเวลาเองที่ช่วงนั้นเพื่อให้แผนสมบูรณ์'
+              : 'ยังมีช่วงเดินทางที่ยังไม่ได้ระบุเวลา กรอกเวลาเดินทางในแต่ละช่วงเพื่อให้เวลาถึงของจุดถัดไปคำนวณได้'}
           </p>
         ) : null}
       </div>
 
       <AddStopPanel
         tripId={tripId}
+        searchEnabled={routingConfigured}
         busy={pending}
         pickingOnMap={pickingOnMap}
         pickedCoordinates={picked}
@@ -625,6 +637,7 @@ export function ItineraryPlanner({
                       selectedRouteReference={legBefore.selectedRouteReference}
                       timing={legTiming.get(legBefore.legKey)}
                       route={routes[legBefore.legKey]}
+                      routingConfigured={routingConfigured}
                       selected={selectedLegKey === legBefore.legKey}
                       busy={pending}
                       onSelect={() => {

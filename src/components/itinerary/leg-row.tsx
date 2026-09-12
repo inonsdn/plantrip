@@ -35,6 +35,8 @@ export interface LegRowProps {
   selectedRouteReference: string | null;
   timing: ScheduleLegResult | undefined;
   route: LegRouteState | undefined;
+  /** False when no routing provider is set up: entering a time is the norm. */
+  routingConfigured: boolean;
   selected: boolean;
   busy: boolean;
   onSelect: () => void;
@@ -70,6 +72,7 @@ export function LegRow({
   selectedRouteReference,
   timing,
   route,
+  routingConfigured,
   selected,
   busy,
   onSelect,
@@ -119,11 +122,13 @@ export function LegRow({
                   </span>
                 ) : durationText ? (
                   durationText
-                ) : (
+                ) : routingConfigured ? (
                   <span className="inline-flex items-center gap-1 text-accent">
                     <AlertTriangle aria-hidden className="size-3" />
                     ไม่ทราบเวลาเดินทาง
                   </span>
+                ) : (
+                  <span className="text-muted">ยังไม่ได้ระบุเวลาเดินทาง</span>
                 )}
               </span>
               {alternative?.distanceMeters != null ? (
@@ -192,7 +197,7 @@ export function LegRow({
 
         {open ? (
           <div id={detailsId} className="space-y-3 border-t border-line px-2.5 py-3">
-            {providerFailed ? (
+            {providerFailed && routingConfigured ? (
               <p className="rounded-lg border border-accent/30 bg-accent-soft px-2.5 py-2 text-xs leading-5 text-ink">
                 {result?.message}
               </p>
@@ -272,7 +277,11 @@ export function LegRow({
 
             <Field
               label="ระบุเวลาเอง"
-              hint="ใช้เมื่อไม่มีข้อมูลจากผู้ให้บริการ เว้นว่างเพื่อกลับไปใช้ข้อมูลอัตโนมัติ"
+              hint={
+                routingConfigured
+                  ? 'ใช้เมื่อไม่มีข้อมูลจากผู้ให้บริการ เว้นว่างเพื่อกลับไปใช้ข้อมูลอัตโนมัติ'
+                  : 'แอปยังไม่ได้เชื่อมต่อบริการเส้นทาง จึงต้องกรอกเวลาเดินทางเอง'
+              }
             >
               <span className="inline-flex items-center gap-1.5">
                 <span className="w-20">

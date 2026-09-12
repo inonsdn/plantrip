@@ -21,6 +21,7 @@ export interface NewStopInput {
  */
 export function AddStopPanel({
   tripId,
+  searchEnabled,
   busy,
   pickingOnMap,
   pickedCoordinates,
@@ -28,6 +29,8 @@ export function AddStopPanel({
   onAdd,
 }: {
   tripId: string;
+  /** False when no places provider is set up; stops are then added by hand. */
+  searchEnabled: boolean;
   busy: boolean;
   pickingOnMap: boolean;
   pickedCoordinates: { latitude: number; longitude: number } | null;
@@ -37,7 +40,8 @@ export function AddStopPanel({
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [search, setSearch] = useState<PlaceSearchResult | null>(null);
-  const [manualOpen, setManualOpen] = useState(false);
+  // With no search behind it, adding by hand is the whole panel, not a fallback.
+  const [manualOpen, setManualOpen] = useState(!searchEnabled);
   const [manualName, setManualName] = useState('');
   const [manualLat, setManualLat] = useState('');
   const [manualLng, setManualLng] = useState('');
@@ -124,67 +128,80 @@ export function AddStopPanel({
 
   return (
     <div className="rounded-xl border border-line bg-surface p-3">
-      <form onSubmit={runSearch} className="flex items-start gap-2">
-        <span className="min-w-0 flex-1">
-          <TextInput
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="ค้นหาสถานที่"
-            aria-label="ค้นหาสถานที่"
-            disabled={busy}
-          />
-        </span>
-        <Button type="submit" disabled={busy || searching || !query.trim()}>
-          {searching ? (
-            <Loader2 aria-hidden className="size-4 animate-spin" />
-          ) : (
-            <Search aria-hidden className="size-4" />
-          )}
-          ค้นหา
-        </Button>
-      </form>
+      {searchEnabled ? (
+        <>
+          <form onSubmit={runSearch} className="flex items-start gap-2">
+            <span className="min-w-0 flex-1">
+              <TextInput
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="ค้นหาสถานที่"
+                aria-label="ค้นหาสถานที่"
+                disabled={busy}
+              />
+            </span>
+            <Button type="submit" disabled={busy || searching || !query.trim()}>
+              {searching ? (
+                <Loader2 aria-hidden className="size-4 animate-spin" />
+              ) : (
+                <Search aria-hidden className="size-4" />
+              )}
+              ค้นหา
+            </Button>
+          </form>
 
-      {search ? (
-        search.results.length > 0 ? (
-          <ul className="mt-2 space-y-1">
-            {search.results.map((place, index) => (
-              <li key={`${place.placeId ?? place.name}-${index}`}>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => addFromResult(place)}
-                  className="flex w-full min-h-11 items-center justify-between gap-2 rounded-lg border border-line px-2.5 py-2 text-left text-sm hover:bg-canvas"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium text-ink">{place.name}</span>
-                    {place.address ? (
-                      <span className="block truncate text-xs text-muted">{place.address}</span>
-                    ) : null}
-                  </span>
-                  <MapPinPlus aria-hidden className="size-4 shrink-0 text-brand" />
-                </button>
-              </li>
-            ))}
-            {search.attribution ? (
-              <li className="px-1 pt-1 text-[11px] text-muted">{search.attribution}</li>
-            ) : null}
-          </ul>
-        ) : (
-          <p className="mt-2 rounded-lg border border-line bg-canvas px-2.5 py-2 text-xs leading-5 text-ink-soft">
-            {search.message || 'ไม่พบสถานที่ที่ตรงกับคำค้นหา'}
-          </p>
-        )
+          {search ? (
+            search.results.length > 0 ? (
+              <ul className="mt-2 space-y-1">
+                {search.results.map((place, index) => (
+                  <li key={`${place.placeId ?? place.name}-${index}`}>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => addFromResult(place)}
+                      className="flex w-full min-h-11 items-center justify-between gap-2 rounded-lg border border-line px-2.5 py-2 text-left text-sm hover:bg-canvas"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-ink">{place.name}</span>
+                        {place.address ? (
+                          <span className="block truncate text-xs text-muted">{place.address}</span>
+                        ) : null}
+                      </span>
+                      <MapPinPlus aria-hidden className="size-4 shrink-0 text-brand" />
+                    </button>
+                  </li>
+                ))}
+                {search.attribution ? (
+                  <li className="px-1 pt-1 text-[11px] text-muted">{search.attribution}</li>
+                ) : null}
+              </ul>
+            ) : (
+              <p className="mt-2 rounded-lg border border-line bg-canvas px-2.5 py-2 text-xs leading-5 text-ink-soft">
+                {search.message || 'ไม่พบสถานที่ที่ตรงกับคำค้นหา'}
+              </p>
+            )
+          ) : null}
+        </>
       ) : null}
 
-      <div className="mt-3 border-t border-line pt-3">
-        <button
-          type="button"
-          onClick={() => setManualOpen((open) => !open)}
-          aria-expanded={manualOpen}
-          className="text-sm font-medium text-brand-strong underline-offset-2 hover:underline"
-        >
-          เพิ่มจุดเอง (ปักหมุดหรือใส่พิกัด)
-        </button>
+      <div className={searchEnabled ? 'mt-3 border-t border-line pt-3' : ''}>
+        {searchEnabled ? (
+          <button
+            type="button"
+            onClick={() => setManualOpen((open) => !open)}
+            aria-expanded={manualOpen}
+            className="text-sm font-medium text-brand-strong underline-offset-2 hover:underline"
+          >
+            เพิ่มจุดเอง (ปักหมุดหรือใส่พิกัด)
+          </button>
+        ) : (
+          <p className="text-sm font-medium text-ink">
+            เพิ่มสถานที่
+            <span className="mt-0.5 block text-xs font-normal leading-5 text-muted">
+              ปักหมุดบนแผนที่ หรือใส่พิกัดจากแอปแผนที่ที่คุณใช้
+            </span>
+          </p>
+        )}
 
         {manualOpen ? (
           <div className="mt-3 space-y-3">

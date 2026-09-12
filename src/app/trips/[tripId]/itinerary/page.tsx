@@ -3,6 +3,7 @@ import { ItineraryPlanner } from '@/components/itinerary/itinerary-planner';
 import { ItineraryDaySetup } from '@/components/itinerary/day-setup';
 import { getTripContext } from '@/lib/queries/trips';
 import { getItinerary } from '@/lib/queries/itinerary';
+import { isRoutingConfigured } from '@/lib/itinerary/providers';
 import { parseDateOnly, toDateOnly } from '@/lib/format';
 
 export const metadata = { title: 'แผนการเดินทาง' };
@@ -48,7 +49,7 @@ export default async function TripItineraryPage({
         hasDates={context.trip.startDate !== null}
         hasDays={days.length > 0}
       />
-      <ItineraryPlanner tripId={tripId} days={days} />
+      <ItineraryPlanner tripId={tripId} days={days} routingConfigured={isRoutingConfigured()} />
     </div>
   );
 }

@@ -449,13 +449,13 @@ export function MapView({
                 </span>
               </label>
             ) : null}
-          </div>
-        ) : null}
 
-        {!TILE_TEMPLATE ? (
-          <p className="mt-2 rounded-lg border border-line bg-surface/95 px-2.5 py-1.5 text-[11px] leading-4 text-muted shadow-sm backdrop-blur">
-            ยังไม่ได้ตั้งค่าแผนที่พื้นหลัง จึงแสดงเฉพาะจุดและเส้นทาง
-          </p>
+            {!TILE_TEMPLATE ? (
+              <p className="mt-2 border-t border-line px-1 pt-2 text-[11px] leading-4 text-muted">
+                แผนที่นี้แสดงเฉพาะจุดและเส้นทาง ไม่มีภาพแผนที่พื้นหลัง
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
