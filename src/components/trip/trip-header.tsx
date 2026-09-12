@@ -10,8 +10,8 @@ export function TripHeader() {
   const { trip, members } = context;
 
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3 pb-4">
-      <div className="min-w-0">
+    <div className="flex items-start justify-between gap-3 pb-4">
+      <div className="min-w-0 flex-1">
         <h1 className="text-xl font-bold text-ink sm:text-2xl">{trip.name}</h1>
         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
           {trip.destination ? (
@@ -30,7 +30,9 @@ export function TripHeader() {
           </span>
         </div>
       </div>
-      <ShareLinkButton onClick={openShare} />
+      <div className="shrink-0">
+        <ShareLinkButton onClick={openShare} iconOnly />
+      </div>
     </div>
   );
 }

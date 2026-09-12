@@ -81,7 +81,9 @@ export function TripDashboard({
         <StatTile
           label="ค่าใช้จ่ายรวมทั้งทริป"
           value={formatMoney(stats.totalMinor, currency)}
-          hint={`${stats.expenseCount} รายการ`}
+          hint={
+            myBalance ? `ของฉัน ${formatMoney(myBalance.spentMinor, currency)}` : undefined
+          }
           icon={<Wallet aria-hidden className="size-3.5" />}
         />
         <StatTile
