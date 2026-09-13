@@ -63,6 +63,7 @@ export const getItinerary = cache(async function getItinerary(
         selectedRouteReference: leg.selected_route_reference,
         manualDurationMinutes: leg.manual_duration_minutes,
         visibleOnMap: leg.visible_on_map,
+        notes: leg.notes,
       })),
   }));
 });

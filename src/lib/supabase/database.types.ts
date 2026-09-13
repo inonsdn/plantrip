@@ -149,6 +149,7 @@ export type ItineraryLegPreferenceRow = {
   selected_route_reference: string | null;
   manual_duration_minutes: number | null;
   visible_on_map: boolean;
+  notes: string | null;
   created_at: string;
   updated_at: string;
 };
