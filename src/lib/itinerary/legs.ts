@@ -18,6 +18,7 @@ export interface StoredLegPreference {
   selectedRouteReference: string | null;
   manualDurationMinutes: number | null;
   visibleOnMap: boolean;
+  notes: string | null;
 }
 
 export interface ResolvedLeg extends StoredLegPreference {
@@ -67,6 +68,7 @@ export function resolveLegs(
       selectedRouteReference: null,
       manualDurationMinutes: null,
       visibleOnMap: true,
+      notes: null,
       fromStoredPreference: false,
     };
   });

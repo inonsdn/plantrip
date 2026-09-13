@@ -65,7 +65,11 @@ Thai; code, schema and this document are in English.
   are staying — nothing else is required. Seven ways to travel per leg (เดิน,
   รถส่วนตัว, แท็กซี่, รถสาธารณะ, รถไฟ, เครื่องบิน, เรือ), drag a card by its
   numbered rail to reorder it (with a finger too, not only a mouse), move a
-  place to another day, and take one out of the plan without deleting it.
+  place to another day, and take one out of the plan without deleting it. The
+  list itself stays a list: a card shows only its number, name, arrival and
+  departure, and how long you stay. Tapping one opens a dialog holding the
+  place and its onward journey together, saved on “ยืนยัน” and thrown away on
+  “ยกเลิก” — a failed save keeps the dialog open with the edits intact.
   Arrival and departure times are computed once from the day's start time, the
   travel times and how long you spend at each stop — never stored, never
   guessed. Both a journey with no travel time and a stop whose stay is
@@ -140,6 +144,7 @@ order:
 | `20240101001000_save_expense_itinerary.sql` | `save_expense` carries the optional itinerary reference |
 | `20240101001100_itinerary_modes.sql` | Adds เครื่องบิน / รถไฟ / เรือ / แท็กซี่ to `transport_mode`, and makes a stop's coordinates optional |
 | `20240101001200_optional_visit_duration.sql` | "อยู่ที่นี่นานเท่าไร" may be left unanswered |
+| `20240101001300_leg_notes.sql` | A note on the journey itself, not just on the place |
 
 **Option A — Supabase CLI (recommended):**
 

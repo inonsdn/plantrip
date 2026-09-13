@@ -177,61 +177,6 @@ export async function addItineraryStopAction(
   return ok({ stopId: data.id });
 }
 
-const updateStopSchema = z.object({
-  tripId: z.string().uuid(),
-  stopId: z.string().uuid(),
-  name: z.string().trim().min(1).max(160).optional(),
-  notes: z.string().trim().max(1000).nullable().optional(),
-  visitDurationMinutes: z.number().int().min(0).max(1440).nullable().optional(),
-  notBeforeLocalTime: z.union([localTime, z.null()]).optional(),
-  enabled: z.boolean().optional(),
-  expectedVersion: z.number().int().positive().optional(),
-});
-
-export async function updateItineraryStopAction(input: unknown): Promise<ActionResult> {
-  const parsed = updateStopSchema.safeParse(input);
-  if (!parsed.success) return fail('ข้อมูลสถานที่ไม่ถูกต้อง', fieldErrors(parsed.error));
-  const value = parsed.data;
-
-  const context = await requireMembership(value.tripId);
-  if (!context) return fail('ไม่พบทริปนี้ หรือคุณไม่มีสิทธิ์เข้าถึง');
-
-  const supabase = await createSupabaseServerClient();
-  const { data: stop } = await supabase
-    .from('itinerary_stops')
-    .select('day_id')
-    .eq('id', value.stopId)
-    .eq('trip_id', value.tripId)
-    .maybeSingle();
-  if (!stop) return fail('ไม่พบสถานที่นี้');
-
-  const { error: versionError } = await supabase.rpc('bump_itinerary_day', {
-    p_day_id: stop.day_id,
-    p_expected_version: value.expectedVersion ?? null,
-  });
-  if (versionError) return fail(friendlyError(versionError, 'บันทึกไม่สำเร็จ'));
-
-  const { error } = await supabase
-    .from('itinerary_stops')
-    .update({
-      ...(value.name !== undefined ? { name: value.name } : {}),
-      ...(value.notes !== undefined ? { notes: value.notes } : {}),
-      ...(value.visitDurationMinutes !== undefined
-        ? { visit_duration_minutes: value.visitDurationMinutes }
-        : {}),
-      ...(value.notBeforeLocalTime !== undefined
-        ? { not_before_local_time: value.notBeforeLocalTime }
-        : {}),
-      ...(value.enabled !== undefined ? { enabled: value.enabled } : {}),
-    })
-    .eq('id', value.stopId)
-    .eq('trip_id', value.tripId);
-
-  if (error) return fail(friendlyError(error, 'บันทึกสถานที่ไม่สำเร็จ'));
-  revalidateTrip(value.tripId);
-  return ok(undefined);
-}
-
 /**
  * Soft delete. The row stays so restoring it brings back its notes, its leg
  * preferences and any expense that references it.
@@ -327,27 +272,45 @@ export async function moveItineraryStopAction(
 // leg preferences
 // ---------------------------------------------------------------------------
 
-const legSchema = z.object({
+// ---------------------------------------------------------------------------
+// one dialog, one save
+// ---------------------------------------------------------------------------
+
+const stopWithLegSchema = z.object({
   tripId: z.string().uuid(),
-  dayId: z.string().uuid(),
-  originStopId: z.string().uuid(),
-  destinationStopId: z.string().uuid(),
-  transportMode: z.enum(TRANSPORT_MODES).optional(),
-  selectedRouteReference: z.string().max(200).nullable().optional(),
-  manualDurationMinutes: z.number().int().min(0).max(1440).nullable().optional(),
-  visibleOnMap: z.boolean().optional(),
+  stopId: z.string().uuid(),
+  expectedVersion: z.number().int().positive().optional(),
+  stop: z.object({
+    name: z.string().trim().min(1, 'กรุณากรอกชื่อสถานที่').max(160),
+    notes: z.string().trim().max(1000).nullable(),
+    visitDurationMinutes: z.number().int().min(0).max(1440).nullable(),
+    notBeforeLocalTime: z.union([localTime, z.null()]),
+    enabled: z.boolean(),
+  }),
+  /** Absent for the last enabled stop of the day, which has no onward journey. */
+  leg: z
+    .object({
+      destinationStopId: z.string().uuid(),
+      transportMode: z.enum(TRANSPORT_MODES),
+      manualDurationMinutes: z.number().int().min(0).max(1440).nullable(),
+      notes: z.string().trim().max(1000).nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 
 /**
- * Saves one leg's settings, keyed by its ordered pair of stops so a preference
- * can never be applied to a different journey.
+ * Saves a place and its onward journey together.
+ *
+ * The edit dialog collects both, so they travel as one request: two separate
+ * actions would double the latency and could leave the pair half-saved.
  */
-export async function saveItineraryLegAction(input: unknown): Promise<ActionResult> {
-  const parsed = legSchema.safeParse(input);
-  if (!parsed.success) return fail('ข้อมูลเส้นทางไม่ถูกต้อง', fieldErrors(parsed.error));
+export async function saveItineraryStopAction(input: unknown): Promise<ActionResult> {
+  const parsed = stopWithLegSchema.safeParse(input);
+  if (!parsed.success) return fail('ข้อมูลสถานที่ไม่ถูกต้อง', fieldErrors(parsed.error));
   const value = parsed.data;
 
-  if (value.originStopId === value.destinationStopId) {
+  if (value.leg && value.leg.destinationStopId === value.stopId) {
     return fail('ต้นทางและปลายทางต้องเป็นคนละจุด');
   }
 
@@ -355,33 +318,50 @@ export async function saveItineraryLegAction(input: unknown): Promise<ActionResu
   if (!context) return fail('ไม่พบทริปนี้ หรือคุณไม่มีสิทธิ์เข้าถึง');
 
   const supabase = await createSupabaseServerClient();
-  const { data: day } = await supabase
-    .from('itinerary_days')
-    .select('default_transport_mode')
-    .eq('id', value.dayId)
+  const { data: stop } = await supabase
+    .from('itinerary_stops')
+    .select('day_id')
+    .eq('id', value.stopId)
     .eq('trip_id', value.tripId)
     .maybeSingle();
-  if (!day) return fail('ไม่พบวันนี้ในแผนการเดินทาง');
+  if (!stop) return fail('ไม่พบสถานที่นี้');
 
-  const { error } = await supabase.from('itinerary_leg_preferences').upsert(
-    {
-      day_id: value.dayId,
-      trip_id: value.tripId,
-      origin_stop_id: value.originStopId,
-      destination_stop_id: value.destinationStopId,
-      transport_mode: value.transportMode ?? day.default_transport_mode,
-      ...(value.selectedRouteReference !== undefined
-        ? { selected_route_reference: value.selectedRouteReference }
-        : {}),
-      ...(value.manualDurationMinutes !== undefined
-        ? { manual_duration_minutes: value.manualDurationMinutes }
-        : {}),
-      ...(value.visibleOnMap !== undefined ? { visible_on_map: value.visibleOnMap } : {}),
-    },
-    { onConflict: 'day_id,origin_stop_id,destination_stop_id' },
-  );
+  const { error: versionError } = await supabase.rpc('bump_itinerary_day', {
+    p_day_id: stop.day_id,
+    p_expected_version: value.expectedVersion ?? null,
+  });
+  if (versionError) return fail(friendlyError(versionError, 'บันทึกไม่สำเร็จ'));
 
-  if (error) return fail(friendlyError(error, 'บันทึกเส้นทางไม่สำเร็จ'));
+  const { error } = await supabase
+    .from('itinerary_stops')
+    .update({
+      name: value.stop.name,
+      notes: value.stop.notes,
+      visit_duration_minutes: value.stop.visitDurationMinutes,
+      not_before_local_time: value.stop.notBeforeLocalTime,
+      enabled: value.stop.enabled,
+    })
+    .eq('id', value.stopId)
+    .eq('trip_id', value.tripId);
+
+  if (error) return fail(friendlyError(error, 'บันทึกสถานที่ไม่สำเร็จ'));
+
+  if (value.leg) {
+    const { error: legError } = await supabase.from('itinerary_leg_preferences').upsert(
+      {
+        day_id: stop.day_id,
+        trip_id: value.tripId,
+        origin_stop_id: value.stopId,
+        destination_stop_id: value.leg.destinationStopId,
+        transport_mode: value.leg.transportMode,
+        manual_duration_minutes: value.leg.manualDurationMinutes,
+        notes: value.leg.notes,
+      },
+      { onConflict: 'day_id,origin_stop_id,destination_stop_id' },
+    );
+    if (legError) return fail(friendlyError(legError, 'บันทึกการเดินทางไม่สำเร็จ'));
+  }
+
   revalidateTrip(value.tripId);
   return ok(undefined);
 }

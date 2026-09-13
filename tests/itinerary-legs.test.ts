@@ -19,6 +19,7 @@ function preference(
     selectedRouteReference: null,
     manualDurationMinutes: null,
     visibleOnMap: true,
+    notes: null,
     ...extra,
   };
 }

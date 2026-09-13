@@ -58,6 +58,7 @@ describe('map visibility is not a planning decision', () => {
         selectedRouteReference: null,
         manualDurationMinutes: 20,
         visibleOnMap,
+        notes: null,
       },
       {
         legKey: legKey('b', 'c'),
@@ -67,6 +68,7 @@ describe('map visibility is not a planning decision', () => {
         selectedRouteReference: null,
         manualDurationMinutes: 10,
         visibleOnMap: true,
+        notes: null,
       },
     ];
   }

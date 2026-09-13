@@ -13,6 +13,7 @@ export function Sheet({
   title,
   description,
   children,
+  footer,
   size = 'md',
 }: {
   open: boolean;
@@ -20,6 +21,8 @@ export function Sheet({
   title: string;
   description?: ReactNode;
   children: ReactNode;
+  /** Pinned below the scrolling body, clear of the device's safe area. */
+  footer?: ReactNode;
   size?: 'md' | 'lg';
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -114,6 +117,12 @@ export function Sheet({
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
           {children}
         </div>
+
+        {footer ? (
+          <footer className="shrink-0 border-t border-line bg-surface px-4 py-3 pb-safe sm:rounded-b-2xl sm:px-5 sm:pb-3">
+            {footer}
+          </footer>
+        ) : null}
       </div>
     </div>
   );

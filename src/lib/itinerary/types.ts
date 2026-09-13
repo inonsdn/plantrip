@@ -25,6 +25,7 @@ export interface ItineraryLegPreferenceView {
   selectedRouteReference: string | null;
   manualDurationMinutes: number | null;
   visibleOnMap: boolean;
+  notes: string | null;
 }
 
 export interface ItineraryDayView {
