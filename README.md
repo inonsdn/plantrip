@@ -252,6 +252,21 @@ restart.
 `/trips/<id>/itinerary` ("แผนการเดินทาง") plans each day as an ordered list of
 places with the journeys between them.
 
+**Edits do not wait.** List changes — reordering, adding, deleting and its undo,
+moving a place to another day — appear immediately and are reconciled in the
+background by a serial queue (`use-itinerary-queue.ts`). Requests go out one at
+a time because they all bump the same day's `version`; sending two at once would
+make the second one's expected version stale and the server would reject an edit
+that was in conflict with nothing. When the server refuses, the whole batch is
+dropped, the list snaps back to what the server actually holds, and a toast says
+what failed and offers to retry it. The edit dialogs still wait for their own
+"ยืนยัน", so a failure is shown where the edits are.
+
+Nothing calls `router.refresh()` after a successful action any more:
+`revalidatePath` inside a server action already returns the re-rendered page
+with its response, so refreshing again rendered the whole route a second time
+and doubled the wait for every edit.
+
 **What is stored, and what is derived.** `itinerary_days` holds the day's local
 start time, IANA time zone, default transport mode and an optimistic-concurrency
 `version`. `itinerary_stops` holds the places, how long to spend at each (null when that

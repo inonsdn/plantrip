@@ -1,7 +1,6 @@
 'use client';
 
 import { useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { CalendarPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
@@ -22,7 +21,6 @@ export function ItineraryDaySetup({
   hasDates: boolean;
   hasDays: boolean;
 }) {
-  const router = useRouter();
   const { showToast } = useToast();
   const [pending, startTransition] = useTransition();
 
@@ -54,7 +52,6 @@ export function ItineraryDaySetup({
               return;
             }
             showToast({ message: 'สร้างวันในแผนแล้ว', tone: 'success' });
-            router.refresh();
           })
         }
       >

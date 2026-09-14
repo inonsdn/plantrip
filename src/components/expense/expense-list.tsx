@@ -16,7 +16,6 @@ import { formatMoney } from '@/lib/money';
 import { deleteExpenseAction } from '@/lib/actions/expenses';
 import type { ExpenseView, TripContext } from '@/lib/types';
 import { useTripUi } from '@/components/trip/trip-shell';
-import { useRouter } from 'next/navigation';
 
 type SettlementFilter = 'all' | 'included' | 'excluded';
 
@@ -27,7 +26,6 @@ export function ExpenseList({
   context: TripContext;
   expenses: ExpenseView[];
 }) {
-  const router = useRouter();
   const { openExpense } = useTripUi();
   const { showToast } = useToast();
   const [pending, startTransition] = useTransition();
@@ -112,7 +110,6 @@ export function ExpenseList({
         message: result.ok ? 'ลบรายการเรียบร้อย' : result.error,
         tone: result.ok ? 'success' : 'error',
       });
-      if (result.ok) router.refresh();
     });
   }
 

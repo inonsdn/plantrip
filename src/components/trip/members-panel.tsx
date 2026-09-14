@@ -59,7 +59,6 @@ export function MembersPanel({ context }: { context: TripContext }) {
       }
       setNewMemberName('');
       showToast({ message: `เพิ่ม ${name} เข้าทริปแล้ว`, tone: 'success' });
-      router.refresh();
     });
   }
 
@@ -82,7 +81,6 @@ export function MembersPanel({ context }: { context: TripContext }) {
         return;
       }
       showToast({ message: 'จับคู่สมาชิกเรียบร้อย', tone: 'success' });
-      router.refresh();
     });
   }
 
@@ -105,7 +103,6 @@ export function MembersPanel({ context }: { context: TripContext }) {
       }
       setRenaming(null);
       showToast({ message: 'เปลี่ยนชื่อเรียบร้อย', tone: 'success' });
-      router.refresh();
     });
   }
 
@@ -136,7 +133,6 @@ export function MembersPanel({ context }: { context: TripContext }) {
         message: result.ok ? `นำ ${member.displayName} ออกจากทริปแล้ว` : result.error,
         tone: result.ok ? 'success' : 'error',
       });
-      if (result.ok) router.refresh();
     });
   }
 
@@ -181,7 +177,6 @@ export function MembersPanel({ context }: { context: TripContext }) {
       }
       setSettingsOpen(false);
       showToast({ message: 'บันทึกข้อมูลทริปแล้ว', tone: 'success' });
-      router.refresh();
     });
   }
 
@@ -203,7 +198,6 @@ export function MembersPanel({ context }: { context: TripContext }) {
         message: 'บันทึกอัตราแลกเปลี่ยนแล้ว รายการเดิมยังใช้อัตราที่บันทึกไว้ตอนนั้น',
         tone: 'success',
       });
-      router.refresh();
     });
   }
 

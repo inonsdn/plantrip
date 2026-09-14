@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox, Field, Select, TextArea, TextInput } from '@/components/ui/field';
@@ -50,7 +49,6 @@ export function ExpenseForm({
   prefill?: ExpensePrefill | null;
   onDone: () => void;
 }) {
-  const router = useRouter();
   const { showToast } = useToast();
   const [pending, startTransition] = useTransition();
   const { trip, currencies, currentMember } = context;
@@ -307,12 +305,10 @@ export function ExpenseForm({
                   message: undone.ok ? 'ยกเลิกรายการล่าสุดแล้ว' : undone.error,
                   tone: undone.ok ? 'info' : 'error',
                 });
-                router.refresh();
               },
             },
       });
       onDone();
-      router.refresh();
     });
   }
 

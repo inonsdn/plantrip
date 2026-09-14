@@ -10,6 +10,12 @@ import { useTripUi } from '@/components/trip/trip-shell';
 import { formatDateWithWeekday } from '@/lib/format';
 import { resolveLegs, type StoredLegPreference } from '@/lib/itinerary/legs';
 import {
+  insertStop,
+  moveStopToDay,
+  removeStop,
+  reorderStops,
+} from '@/lib/itinerary/optimistic';
+import {
   computeDaySchedule,
   formatClock,
   formatDuration,
@@ -34,12 +40,13 @@ import { AddStopForm, type NewStopInput } from './add-stop';
 import { DayDialog, timeZoneLabel, type DayDraft } from './day-dialog';
 import { StopCard } from './stop-card';
 import { StopDialog, type LegDraft, type StopDraft } from './stop-dialog';
+import { useItineraryQueue } from './use-itinerary-queue';
 import { useLegRoutes, type LegRouteRequest } from './use-routing';
 import { useReorder } from './use-reorder';
 
 export function ItineraryPlanner({
   tripId,
-  days,
+  days: serverDays,
   routingConfigured,
 }: {
   tripId: string;
@@ -51,6 +58,10 @@ export function ItineraryPlanner({
   const { showToast } = useToast();
   const { openExpense } = useTripUi();
   const [pending, startTransition] = useTransition();
+
+  // List edits land on screen at once and are reconciled in the background;
+  // the dialogs below still wait for their own confirmation.
+  const { days, enqueue } = useItineraryQueue(serverDays);
 
   const [selectedDayId, setSelectedDayId] = useState<string | null>(days[0]?.id ?? null);
   const [addOpen, setAddOpen] = useState(false);
@@ -208,14 +219,16 @@ export function ItineraryPlanner({
         if (!result.ok) {
           if (options?.onError) options.onError(result.error);
           else showToast({ message: result.error, tone: 'error' });
-          // Someone else's change may already be live; reload so the panel
-          // shows it and a retry is made against the current version.
+          // The server did not change, so nothing revalidated. Someone else's
+          // edit may already be live: reload before offering a retry.
           router.refresh();
           return;
         }
         if (options?.success) showToast({ message: options.success, tone: 'success' });
         options?.onSuccess?.();
-        router.refresh();
+        // No refresh here on purpose. The action's own revalidatePath already
+        // returns the re-rendered page with its response; asking again would
+        // render the whole route a second time and double the wait.
       });
     },
     [router, showToast],
@@ -226,25 +239,59 @@ export function ItineraryPlanner({
   const reorder = useCallback(
     (stopIds: string[]) => {
       if (!day) return;
-      run(() =>
-        reorderItineraryStopsAction({
-          tripId,
-          dayId: day.id,
-          stopIds,
-          expectedVersion: day.version,
-        }),
-      );
+      const dayId = day.id;
+      enqueue({
+        label: 'จัดลำดับสถานที่',
+        bumps: [dayId],
+        dayId,
+        apply: (current) => reorderStops(current, dayId, stopIds),
+        run: (expectedVersion) =>
+          reorderItineraryStopsAction({
+            tripId,
+            dayId,
+            stopIds,
+            expectedVersion: expectedVersion ?? undefined,
+          }),
+      });
     },
-    [day, run, tripId],
+    [day, enqueue, tripId],
   );
 
   function addStop(input: NewStopInput) {
     if (!day) return;
-    run(
-      () =>
-        addItineraryStopAction({ tripId, dayId: day.id, expectedVersion: day.version, ...input }),
-      { success: 'เพิ่มสถานที่แล้ว', onSuccess: () => setAddOpen(false) },
-    );
+    const dayId = day.id;
+    // A placeholder id only this optimistic view ever sees; the real row
+    // replaces it when the server answers.
+    const temporaryId = `optimistic:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    setAddOpen(false);
+    enqueue({
+      label: 'เพิ่มสถานที่',
+      bumps: [dayId],
+      dayId,
+      apply: (current) =>
+        insertStop(current, dayId, {
+          id: temporaryId,
+          dayId,
+          position: Number.MAX_SAFE_INTEGER,
+          placeProvider: input.placeProvider,
+          placeId: input.placeId,
+          name: input.name,
+          address: input.address,
+          latitude: input.latitude,
+          longitude: input.longitude,
+          visitDurationMinutes: input.visitDurationMinutes,
+          notBeforeLocalTime: input.notBeforeLocalTime,
+          enabled: true,
+          notes: null,
+        }),
+      run: (expectedVersion) =>
+        addItineraryStopAction({
+          tripId,
+          dayId,
+          expectedVersion: expectedVersion ?? undefined,
+          ...input,
+        }),
+    });
   }
 
   function saveDay(draft: DayDraft) {
@@ -288,22 +335,36 @@ export function ItineraryPlanner({
   }
 
   function deleteStop(stopId: string) {
-    run(() => deleteItineraryStopAction(tripId, stopId), {
-      onSuccess: () => {
-        setEditingStopId(null);
-        showToast({
-          message: 'ลบสถานที่แล้ว',
-          tone: 'info',
-          action: {
-            label: 'เลิกทำ',
-            onClick: () =>
-              run(() => restoreItineraryStopAction(tripId, stopId), {
-                success: 'กู้คืนสถานที่แล้ว',
-              }),
-          },
-        });
+    const removed = stopById.get(stopId);
+    const dayId = day?.id ?? null;
+    setEditingStopId(null);
+
+    enqueue({
+      label: 'ลบสถานที่',
+      bumps: [],
+      dayId: null,
+      apply: (current) => removeStop(current, stopId),
+      run: () => deleteItineraryStopAction(tripId, stopId),
+    });
+
+    showToast({
+      message: 'ลบสถานที่แล้ว',
+      tone: 'info',
+      action: {
+        label: 'เลิกทำ',
+        onClick: () => {
+          if (!removed || !dayId) return;
+          enqueue({
+            label: 'กู้คืนสถานที่',
+            bumps: [],
+            dayId: null,
+            // The row is still in the database, soft deleted, so putting it
+            // back on screen is honest while the restore is in flight.
+            apply: (current) => insertStop(current, dayId, removed),
+            run: () => restoreItineraryStopAction(tripId, stopId),
+          });
+        },
       },
-      onError: setDialogError,
     });
   }
 
@@ -521,13 +582,19 @@ export function ItineraryPlanner({
           onClose={() => setEditingStopId(null)}
           onConfirm={(stopDraft, legDraft) => saveStop(editingStop.id, stopDraft, legDraft)}
           onDelete={() => deleteStop(editingStop.id)}
-          onMoveToDay={(dayId) =>
-            run(() => moveItineraryStopAction(tripId, editingStop.id, dayId), {
-              success: 'ย้ายสถานที่แล้ว',
-              onSuccess: () => setEditingStopId(null),
-              onError: setDialogError,
-            })
-          }
+          onMoveToDay={(targetDayId) => {
+            const stopId = editingStop.id;
+            setEditingStopId(null);
+            enqueue({
+              label: 'ย้ายสถานที่',
+              // move_itinerary_stop bumps the day it left and the day it joins.
+              bumps: [day.id, targetDayId],
+              dayId: null,
+              apply: (current) => moveStopToDay(current, stopId, targetDayId),
+              run: () => moveItineraryStopAction(tripId, stopId, targetDayId),
+            });
+            showToast({ message: 'ย้ายสถานที่แล้ว', tone: 'success' });
+          }}
           onRecordExpense={(legDraft) =>
             recordLegExpense(editingStop.name, editingStop.id, legDraft)
           }
