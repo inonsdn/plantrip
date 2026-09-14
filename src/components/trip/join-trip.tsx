@@ -15,27 +15,44 @@ export function JoinTrip({ inviteToken, tripName }: { inviteToken: string; tripN
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
-  const started = useRef(false);
+  // The attempt this ref remembers, not merely "have we started".
+  const attempted = useRef<number | null>(null);
 
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
+    // Exactly one attempt per retryKey, and the only way to get a new retryKey
+    // is the button below.
+    //
+    // This used to clear a boolean on failure so that a later run of the
+    // effect would try again. Nothing paced those retries, so any change that
+    // made the effect re-run would have hammered join_trip_by_token — which
+    // raises on a bad token, leaving an aborted transaction behind each time.
+    // It never actually fired twice in testing; it was a trap waiting for a
+    // dependency of this effect to become unstable.
+    if (attempted.current === retryKey) return;
+    attempted.current = retryKey;
 
-    let cancelled = false;
     void (async () => {
-      const result = await joinTripAction(inviteToken);
-      if (cancelled) return;
+      // The action can reject outright — the network drops, the deployment is
+      // mid-rollout — and an unhandled rejection here left the page spinning
+      // forever with no message and no way to retry.
+      let result;
+      try {
+        result = await joinTripAction(inviteToken);
+      } catch {
+        setError('เชื่อมต่อไม่สำเร็จ กรุณาลองอีกครั้ง');
+        return;
+      }
       if (!result.ok) {
         setError(result.error);
-        started.current = false;
         return;
       }
       router.replace(`/trips/${result.data.tripId}`);
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    // No cancellation flag: the guard above means there is only ever one
+    // attempt in flight, and discarding its result on an effect re-run (React
+    // double-invokes them in development) left the page spinning with the
+    // answer thrown away.
   }, [inviteToken, router, retryKey]);
 
   if (error) {
@@ -45,7 +62,13 @@ export function JoinTrip({ inviteToken, tripName }: { inviteToken: string; tripN
         description={error}
         action={
           <div className="flex flex-wrap justify-center gap-2">
-            <Button type="button" onClick={() => setRetryKey((key) => key + 1)}>
+            <Button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setRetryKey((key) => key + 1);
+              }}
+            >
               ลองอีกครั้ง
             </Button>
             <LinkButton href="/trips" variant="secondary">
