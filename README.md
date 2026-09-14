@@ -236,10 +236,25 @@ open redirect.
 | `ITINERARY_ROUTE_PROVIDER` | — | no | Routing/places provider id. Unset (or `none`) means routing is switched off and every leg says so |
 | `ITINERARY_DAILY_ROUTE_BUDGET` | — | no | Outbound routing calls allowed per UTC day across the whole application. Default `500`; `0` disables routing entirely |
 
-**No `NEXT_PUBLIC_` prefix is needed.** Only one component talks to Supabase
-from the browser — the Google sign-in button — and the sign-in page hands it the
-URL and anon key as props. Everything else runs on the server. Both naming
-conventions are read (`NEXT_PUBLIC_*` wins if both are set), so either works.
+**No `NEXT_PUBLIC_` prefix is needed, and none should be added.** Nothing in
+this app talks to Supabase from the browser: sign-in starts in a server action
+that builds the Google authorize URL and the PKCE verifier server side, so the
+project URL and anon key never leave the server. Both naming conventions are
+read (`NEXT_PUBLIC_*` wins if both are set) — but setting the `NEXT_PUBLIC_`
+ones would inline the key into the client bundle and undo that.
+
+This matters more than "the anon key is public by design" suggests. The key was
+once passed to the sign-in button as a prop, which put it in the HTML of a page
+anything can fetch. Row level security meant no data was ever readable with it,
+but scrapers still used it to call the REST API: `pg_stat_statements` showed
+**25.6 million** PostgREST request set-ups against roughly **6,000** queries
+from the application itself, and the project sat at 100% CPU. `tests/
+no-client-secrets.test.ts` fails the build if a client component ever reaches
+for the Supabase environment again.
+
+If the key has already been scraped, rotate it (Dashboard → Settings → API)
+*after* deploying a version that no longer ships it — otherwise the new one is
+scraped within days too.
 
 These are read from the server and the proxy (Edge) bundle, where Next.js inlines
 them at build time: **changing a value on Vercel requires a redeploy**, not just a

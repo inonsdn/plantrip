@@ -1,8 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useFormStatus } from 'react-dom';
 import { Loader2 } from 'lucide-react';
-import { createClient, type SupabaseBrowserConfig } from '@/lib/supabase/client';
 
 function GoogleMark() {
   return (
@@ -27,58 +26,22 @@ function GoogleMark() {
   );
 }
 
-export function GoogleSignInButton({
-  next,
-  config,
-}: {
-  next?: string;
-  config: SupabaseBrowserConfig;
-}) {
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function signIn() {
-    setPending(true);
-    setError(null);
-    try {
-      const supabase = createClient(config);
-      const callback = new URL('/auth/callback', window.location.origin);
-      if (next) callback.searchParams.set('next', next);
-
-      const { error: signInError } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: callback.toString(),
-          queryParams: { prompt: 'select_account' },
-        },
-      });
-      if (signInError) throw signInError;
-    } catch (caught) {
-      setPending(false);
-      setError(
-        caught instanceof Error
-          ? `เข้าสู่ระบบไม่สำเร็จ: ${caught.message}`
-          : 'เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
-      );
-    }
-  }
+/**
+ * Submits the form its parent owns. Everything Supabase-shaped happens in the
+ * server action, so this component knows nothing about the project URL or key —
+ * and the page works with JavaScript turned off.
+ */
+export function GoogleSignInButton() {
+  const { pending } = useFormStatus();
 
   return (
-    <div className="space-y-3">
-      <button
-        type="button"
-        onClick={signIn}
-        disabled={pending}
-        className="inline-flex min-h-12 w-full items-center justify-center gap-3 rounded-lg border border-line-strong bg-surface px-4 text-base font-semibold text-ink transition-colors hover:bg-canvas focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:text-muted"
-      >
-        {pending ? <Loader2 aria-hidden className="size-5 animate-spin" /> : <GoogleMark />}
-        เข้าสู่ระบบด้วย Google
-      </button>
-      {error ? (
-        <p role="alert" className="text-sm text-negative">
-          {error}
-        </p>
-      ) : null}
-    </div>
+    <button
+      type="submit"
+      disabled={pending}
+      className="inline-flex min-h-12 w-full items-center justify-center gap-3 rounded-lg border border-line-strong bg-surface px-4 text-base font-semibold text-ink transition-colors hover:bg-canvas focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:text-muted"
+    >
+      {pending ? <Loader2 aria-hidden className="size-5 animate-spin" /> : <GoogleMark />}
+      เข้าสู่ระบบด้วย Google
+    </button>
   );
 }
