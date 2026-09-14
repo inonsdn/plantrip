@@ -11,9 +11,10 @@ import 'server-only';
  * statically written references, so a dynamic `process.env[name]` would read as
  * undefined inside the proxy (Edge) bundle.
  *
- * This module is server-only. The browser never reads these: the sign-in page
- * passes the URL and anon key to the client component that needs them, which is
- * why the values work without a NEXT_PUBLIC_ prefix.
+ * This module is server-only and nothing here ever reaches the browser, which
+ * is why the values work without a NEXT_PUBLIC_ prefix. Do not add a helper
+ * that hands them to a client component: a public page that carries the anon
+ * key is a page anything can scrape it from.
  */
 
 function pick(names: string[], values: (string | undefined)[]): string {
@@ -38,9 +39,4 @@ export function supabaseAnonKey(): string {
     ['NEXT_PUBLIC_SUPABASE_ANON_KEY', 'SUPABASE_ANON_KEY'],
     [process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, process.env.SUPABASE_ANON_KEY],
   );
-}
-
-/** Config handed to the browser client. The anon key is public by design. */
-export function publicSupabaseConfig(): { url: string; anonKey: string } {
-  return { url: supabaseUrl(), anonKey: supabaseAnonKey() };
 }

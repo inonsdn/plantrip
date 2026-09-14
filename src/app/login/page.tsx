@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation';
 import { Plane } from 'lucide-react';
 import { GoogleSignInButton } from '@/components/auth/google-sign-in-button';
+import { startGoogleSignInAction } from '@/lib/actions/auth';
 import { getCurrentUser } from '@/lib/auth';
 import { APP_NAME } from '@/lib/branding';
-import { publicSupabaseConfig } from '@/lib/supabase/env';
 
 export const metadata = { title: 'เข้าสู่ระบบ' };
 
@@ -15,9 +15,9 @@ function safeNext(value: string | undefined): string | undefined {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; error?: string }>;
 }) {
-  const { next } = await searchParams;
+  const { next, error } = await searchParams;
   const target = safeNext(next);
 
   const user = await getCurrentUser();
@@ -38,9 +38,15 @@ export default async function LoginPage({
           บันทึกค่าใช้จ่ายระหว่างทริป หารกับเพื่อนอัตโนมัติ และรู้ว่าใครต้องโอนให้ใครเท่าไร
         </p>
 
-        <div className="mt-6">
-          <GoogleSignInButton next={target} config={publicSupabaseConfig()} />
-        </div>
+        <form action={startGoogleSignInAction} className="mt-6 space-y-3">
+          {target ? <input type="hidden" name="next" value={target} /> : null}
+          <GoogleSignInButton />
+          {error ? (
+            <p role="alert" className="text-sm text-negative">
+              เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง
+            </p>
+          ) : null}
+        </form>
 
         <p className="mt-5 text-xs leading-5 text-muted">
           เราใช้บัญชี Google เพื่อยืนยันตัวตนเท่านั้น และจะไม่แสดงอีเมลของคุณให้สมาชิกคนอื่นในทริปเห็น
