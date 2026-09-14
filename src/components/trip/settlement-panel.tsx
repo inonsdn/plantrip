@@ -90,7 +90,6 @@ export function SettlementPanel({
         message: result.ok ? successMessage : (result.error ?? 'เกิดข้อผิดพลาด'),
         tone: result.ok ? 'success' : 'error',
       });
-      if (result.ok) router.refresh();
     });
   }
 
@@ -144,7 +143,6 @@ export function SettlementPanel({
         message: result.ok ? `บันทึกว่าโอนแล้ว ${result.data.settled} รายการ` : result.error,
         tone: result.ok ? 'success' : 'error',
       });
-      if (result.ok) router.refresh();
     });
   }
 
@@ -157,7 +155,6 @@ export function SettlementPanel({
         message: result.ok ? 'ลบรายการโอนแล้ว' : result.error,
         tone: result.ok ? 'success' : 'error',
       });
-      if (result.ok) router.refresh();
     });
   }
 
