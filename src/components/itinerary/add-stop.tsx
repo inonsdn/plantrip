@@ -45,13 +45,6 @@ export function AddStopForm({
   const [search, setSearch] = useState<PlaceSearchResult | null>(null);
   const runId = useRef(0);
 
-  function reset() {
-    setName('');
-    setArriveAt(null);
-    setDuration(60);
-    setError(null);
-  }
-
   function submit(event: React.FormEvent) {
     event.preventDefault();
     const trimmed = name.trim();
@@ -69,7 +62,10 @@ export function AddStopForm({
       visitDurationMinutes: duration,
       notBeforeLocalTime: arriveAt,
     });
-    reset();
+    // The fields are NOT cleared here. `onAdd` only starts the save, so wiping
+    // them now would blank what the person typed while it is still in flight —
+    // and lose it entirely if the save fails. The whole form unmounts with the
+    // dialog once the save succeeds, so the next one starts empty anyway.
   }
 
   async function runSearch(event: React.FormEvent) {
@@ -114,9 +110,6 @@ export function AddStopForm({
       visitDurationMinutes: duration,
       notBeforeLocalTime: arriveAt,
     });
-    setQuery('');
-    setSearch(null);
-    reset();
   }
 
   return (
