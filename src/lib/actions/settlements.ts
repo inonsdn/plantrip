@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createSupabaseServerClient } from '../supabase/server';
+import { getCurrentUser } from '../auth';
 import { getTripContext } from '../queries/trips';
 import { listExpenses, listSettlements } from '../queries/expenses';
 import { computeExpenseDebts } from '../settlement';
@@ -51,9 +52,7 @@ export async function recordSettlementAction(input: unknown): Promise<ActionResu
   if (amountMinor <= 0) return fail('จำนวนเงินต้องมากกว่า 0');
 
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   const confirmed = canConfirmReceipt(context, value.toMemberId);
 
@@ -167,9 +166,7 @@ export async function settleAllAction(
   }
 
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   const now = new Date().toISOString();
 

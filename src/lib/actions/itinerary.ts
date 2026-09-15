@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createSupabaseServerClient } from '../supabase/server';
+import { getCurrentUser } from '../auth';
 import { getTripContext } from '../queries/trips';
 import { fieldErrors } from '../validation';
 import { TRANSPORT_MODES } from '../itinerary/schedule';
@@ -149,9 +150,7 @@ export async function addItineraryStopAction(
     .limit(1)
     .maybeSingle();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   const { data, error } = await supabase
     .from('itinerary_stops')

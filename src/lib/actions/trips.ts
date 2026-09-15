@@ -105,7 +105,11 @@ export async function joinTripAction(
     p_display_name: null,
   });
 
-  if (error || !data) return fail(friendlyError(error, 'เข้าร่วมทริปไม่สำเร็จ'));
+  if (error) return fail(friendlyError(error, 'เข้าร่วมทริปไม่สำเร็จ'));
+  // A null answer is the function's way of saying the token resolves to
+  // nothing. It is a settled answer, not a transient fault, so the join page
+  // must present it as a dead link rather than something worth retrying.
+  if (!data) return fail('ลิงก์เชิญไม่ถูกต้องหรือถูกยกเลิกแล้ว');
 
   revalidatePath('/trips');
   return ok({ tripId: data });

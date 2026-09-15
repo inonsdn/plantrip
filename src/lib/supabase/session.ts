@@ -16,6 +16,14 @@ function isPublicPath(pathname: string): boolean {
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
   let response = NextResponse.next({ request });
 
+  const { pathname, search } = request.nextUrl;
+
+  // The callback and the error page are reached while there is no session yet,
+  // and neither decides anything from `user`. Calling getUser() here would be a
+  // round trip to GoTrue — and five queries against the auth schema — for an
+  // answer nobody reads.
+  if (pathname.startsWith('/auth/')) return response;
+
   const supabase = createServerClient<Database>(supabaseUrl(), supabaseAnonKey(), {
     cookies: {
       getAll() {
@@ -37,8 +45,6 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const { pathname, search } = request.nextUrl;
 
   if (!user && !isPublicPath(pathname)) {
     // API routes answer callers, not browsers: a redirect to the login page

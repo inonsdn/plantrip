@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
 import { getTripContext } from '@/lib/queries/trips';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { getCurrentUser } from '@/lib/auth';
 import { getRouteProvider } from '@/lib/itinerary/providers';
 import { ROUTE_STATUS_MESSAGES, type RouteResult } from '@/lib/itinerary/providers/types';
 import { dailyRouteBudget, withinBurstLimit } from '@/lib/itinerary/rate-limit';
@@ -35,9 +36,7 @@ function deny(status: RouteResult['status'], httpStatus = 200) {
 
 export async function POST(request: NextRequest) {
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const parsed = requestSchema.safeParse(await request.json().catch(() => null));

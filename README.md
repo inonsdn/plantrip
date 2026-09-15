@@ -145,6 +145,9 @@ order:
 | `20240101001100_itinerary_modes.sql` | Adds เครื่องบิน / รถไฟ / เรือ / แท็กซี่ to `transport_mode`, and makes a stop's coordinates optional |
 | `20240101001200_optional_visit_duration.sql` | "อยู่ที่นี่นานเท่าไร" may be left unanswered |
 | `20240101001300_leg_notes.sql` | A note on the journey itself, not just on the place |
+| `20240101001400_rls_performance.sql` | Rewrites every policy to compare against a set built once per query instead of calling a `SECURITY DEFINER` helper per row, and adds the `trip_id` indexes the itinerary queries were missing |
+| `20240101001500_write_amplification.sql` | `on_auth_user_created` fires on insert only, and `reorder_itinerary_stops` writes each stop once instead of twice |
+| `20240101001600_join_returns_instead_of_raising.sql` | A dead invite token returns null instead of raising, so it neither aborts the transaction nor hides itself from `pg_stat_statements` |
 
 **Option A — Supabase CLI (recommended):**
 
