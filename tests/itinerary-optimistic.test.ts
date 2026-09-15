@@ -4,6 +4,8 @@ import {
   moveStopToDay,
   removeStop,
   reorderStops,
+  updateDay,
+  updateStop,
 } from '@/lib/itinerary/optimistic';
 import type { ItineraryDayView, ItineraryStopView } from '@/lib/itinerary/types';
 
@@ -123,5 +125,82 @@ describe('moveStopToDay', () => {
 
   it('does nothing when the stop is already on that day', () => {
     expect(ids(moveStopToDay(days(), 'a', 'd1'), 'd1')).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('updateDay', () => {
+  it('applies the draft and leaves every other day alone', () => {
+    const next = updateDay(days(), 'd1', {
+      startLocalTime: '07:30',
+      timeZone: 'Asia/Bangkok',
+      defaultTransportMode: 'driving',
+    });
+
+    expect(next[0].startLocalTime).toBe('07:30');
+    expect(next[0].timeZone).toBe('Asia/Bangkok');
+    expect(next[0].defaultTransportMode).toBe('driving');
+    expect(next[0].stops).toEqual(days()[0].stops);
+    expect(next[1]).toEqual(days()[1]);
+  });
+});
+
+describe('updateStop', () => {
+  const draft = {
+    name: 'A ใหม่',
+    notes: 'โน้ต',
+    visitDurationMinutes: 90,
+    notBeforeLocalTime: '10:00',
+    enabled: false,
+  };
+
+  it('edits the stop in place without touching its neighbours', () => {
+    const next = updateStop(days(), 'a', draft, null);
+    const day = next[0];
+
+    expect(day.stops[0]).toMatchObject({ id: 'a', ...draft });
+    expect(day.stops.slice(1)).toEqual(days()[0].stops.slice(1));
+    expect(day.legPreferences).toEqual(days()[0].legPreferences);
+  });
+
+  it('updates the existing preference for that exact pair', () => {
+    const next = updateStop(days(), 'a', draft, {
+      destinationStopId: 'b',
+      transportMode: 'train',
+      manualDurationMinutes: 25,
+      notes: 'ขึ้นรถไฟ',
+    });
+
+    expect(next[0].legPreferences).toHaveLength(1);
+    expect(next[0].legPreferences[0]).toMatchObject({
+      id: 'l1',
+      originStopId: 'a',
+      destinationStopId: 'b',
+      transportMode: 'train',
+      manualDurationMinutes: 25,
+      notes: 'ขึ้นรถไฟ',
+    });
+  });
+
+  it('adds a preference when the pair has none, leaving the others intact', () => {
+    const next = updateStop(days(), 'b', draft, {
+      destinationStopId: 'c',
+      transportMode: 'walking',
+      manualDurationMinutes: 5,
+      notes: null,
+    });
+
+    expect(next[0].legPreferences).toHaveLength(2);
+    // The a->b preference is untouched.
+    expect(next[0].legPreferences[0]).toEqual(days()[0].legPreferences[0]);
+    expect(next[0].legPreferences[1]).toMatchObject({
+      originStopId: 'b',
+      destinationStopId: 'c',
+      transportMode: 'walking',
+      manualDurationMinutes: 5,
+    });
+  });
+
+  it('ignores a stop it cannot find', () => {
+    expect(updateStop(days(), 'nope', draft, null)).toEqual(days());
   });
 });

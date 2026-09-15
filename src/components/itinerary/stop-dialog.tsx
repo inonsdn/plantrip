@@ -36,18 +36,18 @@ export interface LegDraft {
 /**
  * Everything about one place, and the journey from it to the next one.
  *
- * Both are drafts: nothing reaches the database until "ยืนยัน", and a failure
- * keeps the dialog open with the edits intact so they are not lost.
+ * Both are drafts: nothing moves until "ยืนยัน". The save then goes through the
+ * queue, so the dialog closes at once and the change is already on the list —
+ * if the server refuses it, the list snaps back and a toast says why.
  */
 export function StopDialog({
   open,
   stop,
   order,
   timing,
+  blockedReason,
   leg,
   otherDays,
-  busy,
-  error,
   onClose,
   onConfirm,
   onDelete,
@@ -58,11 +58,11 @@ export function StopDialog({
   stop: ItineraryStopView;
   order: number | null;
   timing: ScheduleStopResult | undefined;
+  /** Why the time is not known yet, already phrased for the reader. */
+  blockedReason: string | null;
   /** Absent for the last enabled place of the day: there is no onward journey. */
   leg: LegDraft | null;
   otherDays: Array<{ id: string; label: string }>;
-  busy: boolean;
-  error: string | null;
   onClose: () => void;
   onConfirm: (stop: StopDraft, leg: LegDraft | null) => void;
   onDelete: () => void;
@@ -102,7 +102,7 @@ export function StopDialog({
     ? 'ไม่รวมในแผน'
     : timing && !timing.incomplete
       ? `ถึง ${formatClock(timing.arrivalMinutes)} · ออก ${formatClock(timing.departureMinutes)}`
-      : 'ยังคำนวณไม่ได้';
+      : (blockedReason ?? 'ยังคำนวณไม่ได้');
 
   return (
     <Sheet
@@ -112,23 +112,13 @@ export function StopDialog({
       description={order === null ? 'ไม่รวมในแผน' : `ลำดับที่ ${order}`}
       size="lg"
       footer={
-        <div className="space-y-2">
-          {error ? (
-            <p
-              role="alert"
-              className="rounded-lg border border-negative/30 bg-negative-soft px-3 py-2 text-sm leading-6 text-ink"
-            >
-              {error}
-            </p>
-          ) : null}
-          <div className="flex items-center justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
-              ยกเลิก
-            </Button>
-            <Button type="button" onClick={confirm} disabled={busy}>
-              {busy ? 'กำลังบันทึก…' : 'ยืนยัน'}
-            </Button>
-          </div>
+        <div className="flex items-center justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            ยกเลิก
+          </Button>
+          <Button type="button" onClick={confirm}>
+            ยืนยัน
+          </Button>
         </div>
       }
     >
@@ -139,7 +129,6 @@ export function StopDialog({
           <Field label="ชื่อสถานที่" error={nameError} required>
             <TextInput
               value={draft.name}
-              disabled={busy}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, name: event.target.value }));
                 if (nameError) setNameError(null);
@@ -158,7 +147,6 @@ export function StopDialog({
           >
             <TimeField
               value={draft.notBeforeLocalTime}
-              disabled={busy}
               clearable
               hourLabel="ชั่วโมงที่จะไปถึง"
               minuteLabel="นาทีที่จะไปถึง"
@@ -169,7 +157,6 @@ export function StopDialog({
           <Field label="อยู่ที่นี่นานเท่าไร" hint="เลือกไม่ระบุได้ถ้ายังไม่รู้">
             <DurationField
               value={draft.visitDurationMinutes}
-              disabled={busy}
               onChange={(next) =>
                 setDraft((current) => ({ ...current, visitDurationMinutes: next }))
               }
@@ -179,7 +166,6 @@ export function StopDialog({
           <Field label="โน้ต">
             <TextArea
               value={draft.notes ?? ''}
-              disabled={busy}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, notes: event.target.value }))
               }
@@ -190,7 +176,6 @@ export function StopDialog({
             <input
               type="checkbox"
               checked={draft.enabled}
-              disabled={busy}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, enabled: event.target.checked }))
               }
@@ -219,7 +204,6 @@ export function StopDialog({
             <Field label="เดินทางด้วย">
               <Select
                 value={legDraft.transportMode}
-                disabled={busy}
                 onChange={(event) =>
                   setLegDraft((current) =>
                     current
@@ -248,7 +232,6 @@ export function StopDialog({
                         ? ''
                         : String(legDraft.manualDurationMinutes)
                     }
-                    disabled={busy}
                     onChange={(event) => {
                       const raw = event.target.value.trim();
                       if (!raw) {
@@ -280,7 +263,6 @@ export function StopDialog({
             <Field label="โน้ตการเดินทาง">
               <TextArea
                 value={legDraft.notes ?? ''}
-                disabled={busy}
                 onChange={(event) =>
                   setLegDraft((current) =>
                     current ? { ...current, notes: event.target.value } : current,
@@ -293,7 +275,6 @@ export function StopDialog({
               type="button"
               variant="secondary"
               size="sm"
-              disabled={busy}
               onClick={() => onRecordExpense(legDraft)}
             >
               <ReceiptText aria-hidden className="size-4" />
@@ -309,7 +290,6 @@ export function StopDialog({
                 <MoveRight aria-hidden className="size-4 shrink-0 text-muted" />
                 <Select
                   value=""
-                  disabled={busy}
                   onChange={(event) => {
                     if (event.target.value) onMoveToDay(event.target.value);
                   }}
@@ -325,7 +305,7 @@ export function StopDialog({
             </Field>
           ) : null}
 
-          <Button type="button" variant="danger" size="sm" disabled={busy} onClick={onDelete}>
+          <Button type="button" variant="danger" size="sm" onClick={onDelete}>
             <Trash2 aria-hidden className="size-4" />
             ลบสถานที่นี้
           </Button>

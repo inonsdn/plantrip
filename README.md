@@ -270,15 +270,22 @@ restart.
 `/trips/<id>/itinerary` ("แผนการเดินทาง") plans each day as an ordered list of
 places with the journeys between them.
 
-**Edits do not wait.** List changes — reordering, adding, deleting and its undo,
-moving a place to another day — appear immediately and are reconciled in the
-background by a serial queue (`use-itinerary-queue.ts`). Requests go out one at
-a time because they all bump the same day's `version`; sending two at once would
-make the second one's expected version stale and the server would reject an edit
-that was in conflict with nothing. When the server refuses, the whole batch is
-dropped, the list snaps back to what the server actually holds, and a toast says
-what failed and offers to retry it. The edit dialogs still wait for their own
-"ยืนยัน", so a failure is shown where the edits are.
+**Edits do not wait.** Every change — reordering, adding, editing a place or the
+journey out of it, day settings, deleting and its undo, moving a place to
+another day — appears immediately and is reconciled in the background by a
+serial queue (`use-itinerary-queue.ts`). Requests go out one at a time because
+they all bump the same day's `version`; sending two at once would make the
+second one's expected version stale and the server would reject an edit that was
+in conflict with nothing. When the server refuses, the whole batch is dropped,
+the list snaps back to what the server actually holds, and a toast says what
+failed and offers to retry it.
+
+Nothing in the planner disables itself while a save is in flight. A disabled
+input loses focus, and on a phone losing focus closes the keyboard — a save
+landing in the background used to interrupt whatever was being typed next. For
+the same reason `Sheet` takes focus when it opens and at no other time: its
+focus effect depends on `open` alone, never on the inline `onClose` that changes
+identity on every render of the owner.
 
 Nothing calls `router.refresh()` after a successful action any more:
 `revalidatePath` inside a server action already returns the re-rendered page
@@ -315,8 +322,13 @@ sections below describe what changes if you ever want to connect a provider.
 geometry. That is deliberate: a plausible-looking straight line or a guessed
 duration would be indistinguishable from a real answer. A leg with no provider
 result and no manual duration is marked unknown, and every arrival after it is
-reported as "ยังคำนวณไม่ได้" rather than silently assuming zero. Enter a time
-under "ระบุเวลาเอง" to complete the plan by hand.
+reported as unknown rather than silently assuming zero.
+
+An unknown time always says which answer it is waiting for. `computeDaySchedule`
+returns a `blockedBy` alongside every stop, leg and the day's totals, naming
+either the journey with no travel time or the place with no "อยู่ที่นี่นานเท่าไร",
+so the card reads "ยังไม่รู้เวลาเดินทางจาก «Furano station»" instead of a bare
+"ยังคำนวณไม่ได้". Enter a time under "ใช้เวลาเดินทาง" to complete the plan by hand.
 
 In this mode the planner makes **no outbound requests at all**: place search is
 hidden in favour of typing a name, and an unset travel time reads as

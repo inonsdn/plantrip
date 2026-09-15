@@ -57,6 +57,18 @@ export interface ScheduleInput {
   travelByLegKey: Readonly<Record<string, LegTravel>>;
 }
 
+/**
+ * The one missing input that stops the clock.
+ *
+ * "ยังคำนวณไม่ได้" on its own is a dead end: the plan knows exactly which
+ * answer it is waiting for, so it says so and the person can go and give it.
+ */
+export type ScheduleBlocker =
+  /** No travel time for the journey out of `fromStopId`. */
+  | { reason: 'travel'; fromStopId: string }
+  /** `stopId` has no "อยู่ที่นี่นานเท่าไร", so its departure is unknown. */
+  | { reason: 'visit'; stopId: string };
+
 export interface ScheduleStopResult {
   stopId: string;
   arrivalMinutes: number | null;
@@ -66,6 +78,12 @@ export interface ScheduleStopResult {
   visitMinutes: number | null;
   /** True when an upstream travel time is unknown, so this time cannot be known. */
   incomplete: boolean;
+  /**
+   * The first missing input upstream of this stop, or null when nothing is
+   * missing. A stop can be incomplete and still have a known arrival — the
+   * blocker is then about its own departure.
+   */
+  blockedBy: ScheduleBlocker | null;
 }
 
 export interface ScheduleLegResult {
@@ -78,6 +96,7 @@ export interface ScheduleLegResult {
   source: TravelSource;
   transitWaitMinutes: number;
   incomplete: boolean;
+  blockedBy: ScheduleBlocker | null;
 }
 
 export interface DaySchedule {
@@ -96,6 +115,8 @@ export interface DaySchedule {
     /** End minus start. null while any travel time is unknown. */
     elapsedMinutes: number | null;
     complete: boolean;
+    /** Why the day does not add up, or null when it does. */
+    blockedBy: ScheduleBlocker | null;
   };
 }
 
@@ -118,6 +139,9 @@ export function computeDaySchedule(input: ScheduleInput): DaySchedule {
   // Becomes true at the first unknown travel time and never resets: everything
   // after it is genuinely unknowable, and assuming zero would be a lie.
   let incomplete = false;
+  // The input that made it true, kept so the answer is "ยังไม่รู้เวลาเดินทาง
+  // จาก Furano station" rather than "ยังคำนวณไม่ได้".
+  let blocker: ScheduleBlocker | null = null;
   let previousDeparture: number | null = null;
 
   for (const [index, stop] of enabled.entries()) {
@@ -128,6 +152,11 @@ export function computeDaySchedule(input: ScheduleInput): DaySchedule {
       const transitWait = travel.transitWaitMinutes ?? 0;
 
       const legIncomplete = incomplete || travel.minutes === null;
+      const legBlocker: ScheduleBlocker | null = incomplete
+        ? blocker
+        : travel.minutes === null
+          ? { reason: 'travel', fromStopId: origin.id }
+          : null;
       const departure: number | null = incomplete ? null : previousDeparture;
       const arrival: number | null =
         departure !== null && travel.minutes !== null ? departure + travel.minutes : null;
@@ -142,13 +171,17 @@ export function computeDaySchedule(input: ScheduleInput): DaySchedule {
         source: travel.source,
         transitWaitMinutes: transitWait,
         incomplete: legIncomplete,
+        blockedBy: legBlocker,
       });
 
       if (travel.minutes !== null) {
         travelTotal += travel.minutes;
         transitWaitTotal += transitWait;
       }
-      if (travel.minutes === null) incomplete = true;
+      if (travel.minutes === null) {
+        incomplete = true;
+        blocker ??= { reason: 'travel', fromStopId: origin.id };
+      }
       previousDeparture = arrival;
     }
 
@@ -162,6 +195,7 @@ export function computeDaySchedule(input: ScheduleInput): DaySchedule {
         waitMinutes: 0,
         visitMinutes: stop.visitMinutes,
         incomplete: true,
+        blockedBy: blocker,
       });
       if (stop.visitMinutes !== null) visitTotal += stop.visitMinutes;
       previousDeparture = null;
@@ -185,11 +219,16 @@ export function computeDaySchedule(input: ScheduleInput): DaySchedule {
       waitMinutes: wait,
       visitMinutes: stop.visitMinutes,
       incomplete: false,
+      // The arrival is known; only the departure is not, and this says why.
+      blockedBy: departure === null ? { reason: 'visit', stopId: stop.id } : null,
     });
 
     if (stop.visitMinutes !== null) visitTotal += stop.visitMinutes;
     waitTotal += wait;
-    if (departure === null) incomplete = true;
+    if (departure === null) {
+      incomplete = true;
+      blocker ??= { reason: 'visit', stopId: stop.id };
+    }
     previousDeparture = departure;
   }
 
@@ -208,6 +247,7 @@ export function computeDaySchedule(input: ScheduleInput): DaySchedule {
       transitWaitMinutes: transitWaitTotal,
       elapsedMinutes: endMinutes === null ? null : endMinutes - input.startMinutes,
       complete: !incomplete,
+      blockedBy: incomplete ? blocker : null,
     },
   };
 }
