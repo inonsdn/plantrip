@@ -1,7 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useMemo, useState } from 'react';
 import { CalendarDays, MapPin, MoonStar, Pencil, Plus } from 'lucide-react';
 import { EmptyState } from '@/components/ui/states';
 import { useToast } from '@/components/ui/toast';
@@ -14,6 +13,8 @@ import {
   moveStopToDay,
   removeStop,
   reorderStops,
+  updateDay,
+  updateStop,
 } from '@/lib/itinerary/optimistic';
 import {
   computeDaySchedule,
@@ -23,6 +24,7 @@ import {
   parseLocalTime,
   splitClock,
   type LegTravel,
+  type ScheduleBlocker,
 } from '@/lib/itinerary/schedule';
 import type { RouteAlternative } from '@/lib/itinerary/providers/types';
 import type { ItineraryDayView } from '@/lib/itinerary/types';
@@ -35,7 +37,6 @@ import {
   saveItineraryStopAction,
   updateItineraryDayAction,
 } from '@/lib/actions/itinerary';
-import type { ActionResult } from '@/lib/actions/result';
 import { AddStopForm, type NewStopInput } from './add-stop';
 import { DayDialog, timeZoneLabel, type DayDraft } from './day-dialog';
 import { StopCard } from './stop-card';
@@ -54,10 +55,8 @@ export function ItineraryPlanner({
   /** False when no routing provider is set up: times are entered by hand. */
   routingConfigured: boolean;
 }) {
-  const router = useRouter();
   const { showToast } = useToast();
   const { openExpense } = useTripUi();
-  const [pending, startTransition] = useTransition();
 
   // List edits land on screen at once and are reconciled in the background;
   // the dialogs below still wait for their own confirmation.
@@ -67,7 +66,6 @@ export function ItineraryPlanner({
   const [addOpen, setAddOpen] = useState(false);
   const [dayOpen, setDayOpen] = useState(false);
   const [editingStopId, setEditingStopId] = useState<string | null>(null);
-  const [dialogError, setDialogError] = useState<string | null>(null);
 
   // A day that disappears (deleted elsewhere) must not leave the panel blank.
   const day = days.find((candidate) => candidate.id === selectedDayId) ?? days[0] ?? null;
@@ -209,29 +207,28 @@ export function ItineraryPlanner({
   // mutations
   // ---------------------------------------------------------------------
 
-  const run = useCallback(
-    (
-      action: () => Promise<ActionResult<unknown>>,
-      options?: { success?: string; onSuccess?: () => void; onError?: (message: string) => void },
-    ) => {
-      startTransition(async () => {
-        const result = await action();
-        if (!result.ok) {
-          if (options?.onError) options.onError(result.error);
-          else showToast({ message: result.error, tone: 'error' });
-          // The server did not change, so nothing revalidated. Someone else's
-          // edit may already be live: reload before offering a retry.
-          router.refresh();
-          return;
-        }
-        if (options?.success) showToast({ message: options.success, tone: 'success' });
-        options?.onSuccess?.();
-        // No refresh here on purpose. The action's own revalidatePath already
-        // returns the re-rendered page with its response; asking again would
-        // render the whole route a second time and double the wait.
-      });
+  /**
+   * "ยังคำนวณไม่ได้" names the answer it is waiting for.
+   *
+   * The schedule already knows which input stopped the clock; without this the
+   * card said only that it could not work the time out, which reads as a fault
+   * rather than as a question.
+   */
+  const explainBlocker = useCallback(
+    (blocker: ScheduleBlocker | null): string | null => {
+      if (!blocker) return null;
+      if (blocker.reason === 'visit') {
+        const name = stopById.get(blocker.stopId)?.name;
+        return name
+          ? `ยังไม่ได้ระบุว่าอยู่ที่ “${name}” นานเท่าไร`
+          : 'ยังไม่ได้ระบุว่าอยู่ที่จุดก่อนหน้านานเท่าไร';
+      }
+      const name = stopById.get(blocker.fromStopId)?.name;
+      return name
+        ? `ยังไม่รู้เวลาเดินทางจาก “${name}” — เปิดจุดนั้นแล้วกรอก “ใช้เวลาเดินทาง”`
+        : 'ยังไม่รู้เวลาเดินทางของช่วงก่อนหน้า';
     },
-    [router, showToast],
+    [stopById],
   );
 
   // Stable, so the drag's window listeners are not torn down and re-added on
@@ -296,42 +293,52 @@ export function ItineraryPlanner({
 
   function saveDay(draft: DayDraft) {
     if (!day) return;
-    setDialogError(null);
-    run(
-      () =>
+    const dayId = day.id;
+    setDayOpen(false);
+    enqueue({
+      label: 'บันทึกวัน',
+      bumps: [dayId],
+      dayId,
+      apply: (current) => updateDay(current, dayId, draft),
+      run: (expectedVersion) =>
         updateItineraryDayAction({
           tripId,
-          dayId: day.id,
+          dayId,
           startLocalTime: draft.startLocalTime,
           timeZone: draft.timeZone,
           defaultTransportMode: draft.defaultTransportMode,
-          expectedVersion: day.version,
+          expectedVersion: expectedVersion ?? undefined,
         }),
-      { onSuccess: () => setDayOpen(false), onError: setDialogError },
-    );
+    });
   }
 
   function saveStop(stopId: string, stopDraft: StopDraft, legDraft: LegDraft | null) {
     if (!day) return;
-    setDialogError(null);
-    run(
-      () =>
+    const dayId = day.id;
+    const leg = legDraft
+      ? {
+          destinationStopId: legDraft.destinationStopId,
+          transportMode: legDraft.transportMode,
+          manualDurationMinutes: legDraft.manualDurationMinutes,
+          notes: legDraft.notes,
+        }
+      : null;
+
+    setEditingStopId(null);
+    enqueue({
+      label: 'บันทึกสถานที่',
+      bumps: [dayId],
+      dayId,
+      apply: (current) => updateStop(current, stopId, stopDraft, leg),
+      run: (expectedVersion) =>
         saveItineraryStopAction({
           tripId,
           stopId,
-          expectedVersion: day.version,
+          expectedVersion: expectedVersion ?? undefined,
           stop: stopDraft,
-          leg: legDraft
-            ? {
-                destinationStopId: legDraft.destinationStopId,
-                transportMode: legDraft.transportMode,
-                manualDurationMinutes: legDraft.manualDurationMinutes,
-                notes: legDraft.notes,
-              }
-            : null,
+          leg,
         }),
-      { onSuccess: () => setEditingStopId(null), onError: setDialogError },
-    );
+    });
   }
 
   function deleteStop(stopId: string) {
@@ -424,6 +431,8 @@ export function ItineraryPlanner({
       }
     : null;
 
+  const dayBlocker = explainBlocker(schedule.totals.blockedBy);
+
   const crossesMidnight =
     schedule.endMinutes !== null && splitClock(schedule.endMinutes).dayOffset > 0;
 
@@ -461,10 +470,7 @@ export function ItineraryPlanner({
       {/* The day, in two lines. Everything editable is behind the dialog. */}
       <button
         type="button"
-        onClick={() => {
-          setDialogError(null);
-          setDayOpen(true);
-        }}
+        onClick={() => setDayOpen(true)}
         className="flex w-full items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-left hover:bg-canvas/60"
       >
         <span className="min-w-0 flex-1">
@@ -496,6 +502,12 @@ export function ItineraryPlanner({
         <Pencil aria-hidden className="size-4 shrink-0 text-muted" />
       </button>
 
+      {dayBlocker ? (
+        <p className="rounded-lg border border-accent/30 bg-accent-soft px-3 py-2 text-xs leading-5 text-ink-soft">
+          {dayBlocker}
+        </p>
+      ) : null}
+
       {stops.length === 0 ? (
         <EmptyState
           icon={<MapPin className="size-8" />}
@@ -513,11 +525,8 @@ export function ItineraryPlanner({
                 stop={stop}
                 order={orderByStopId.get(stop.id) ?? null}
                 timing={stopTiming.get(stop.id)}
-                busy={pending}
-                onOpen={() => {
-                  setDialogError(null);
-                  setEditingStopId(stop.id);
-                }}
+                blockedReason={explainBlocker(stopTiming.get(stop.id)?.blockedBy ?? null)}
+                onOpen={() => setEditingStopId(stop.id)}
                 onGripPointerDown={(event) => drag.start(stop.id, event)}
                 registerElement={(element) => drag.register(stop.id, element)}
                 dragging={drag.draggingId === stop.id}
@@ -545,12 +554,7 @@ export function ItineraryPlanner({
         size="lg"
       >
         {addOpen ? (
-          <AddStopForm
-            tripId={tripId}
-            searchEnabled={routingConfigured}
-            busy={pending}
-            onAdd={addStop}
-          />
+          <AddStopForm tripId={tripId} searchEnabled={routingConfigured} onAdd={addStop} />
         ) : null}
       </Sheet>
 
@@ -561,8 +565,6 @@ export function ItineraryPlanner({
           open
           day={day}
           title={formatDateWithWeekday(day.localDate)}
-          busy={pending}
-          error={dialogError}
           onClose={() => setDayOpen(false)}
           onConfirm={saveDay}
         />
@@ -575,10 +577,9 @@ export function ItineraryPlanner({
           stop={editingStop}
           order={orderByStopId.get(editingStop.id) ?? null}
           timing={stopTiming.get(editingStop.id)}
+          blockedReason={explainBlocker(stopTiming.get(editingStop.id)?.blockedBy ?? null)}
           leg={editingLegDraft}
           otherDays={otherDays}
-          busy={pending}
-          error={dialogError}
           onClose={() => setEditingStopId(null)}
           onConfirm={(stopDraft, legDraft) => saveStop(editingStop.id, stopDraft, legDraft)}
           onDelete={() => deleteStop(editingStop.id)}

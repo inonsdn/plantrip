@@ -304,3 +304,64 @@ describe('an unspecified visit duration', () => {
     expect(formatClock(schedule.endMinutes)).toBe('11:50');
   });
 });
+
+describe('the plan says which answer it is waiting for', () => {
+  it('names the journey whose travel time is missing', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', 30), stop('b', 45), stop('c', 60)],
+      travelByLegKey: travel([
+        ['a', 'b', null],
+        ['b', 'c', 20],
+      ]),
+    });
+
+    const byId = new Map(schedule.stops.map((entry) => [entry.stopId, entry]));
+    expect(byId.get('a')?.blockedBy).toBeNull();
+    expect(byId.get('b')?.blockedBy).toEqual({ reason: 'travel', fromStopId: 'a' });
+    // The reason carries forward: everything after the gap waits on the same answer.
+    expect(byId.get('c')?.blockedBy).toEqual({ reason: 'travel', fromStopId: 'a' });
+    expect(schedule.totals.blockedBy).toEqual({ reason: 'travel', fromStopId: 'a' });
+  });
+
+  it('names the place with no visit duration', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', 0, { visitMinutes: null }), stop('b', 45)],
+      travelByLegKey: travel([['a', 'b', 15]]),
+    });
+
+    const byId = new Map(schedule.stops.map((entry) => [entry.stopId, entry]));
+    // The arrival is known — only the departure is not, and that is what it says.
+    expect(byId.get('a')?.arrivalMinutes).toBe(NINE_AM);
+    expect(byId.get('a')?.incomplete).toBe(false);
+    expect(byId.get('a')?.blockedBy).toEqual({ reason: 'visit', stopId: 'a' });
+    expect(byId.get('b')?.blockedBy).toEqual({ reason: 'visit', stopId: 'a' });
+    expect(schedule.totals.blockedBy).toEqual({ reason: 'visit', stopId: 'a' });
+  });
+
+  it('reports the first missing answer, not the last', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', 0, { visitMinutes: null }), stop('b', 30), stop('c', 30)],
+      travelByLegKey: travel([
+        ['a', 'b', 15],
+        ['b', 'c', null],
+      ]),
+    });
+
+    expect(schedule.totals.blockedBy).toEqual({ reason: 'visit', stopId: 'a' });
+  });
+
+  it('says nothing is missing when the day adds up', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', 30), stop('b', 45)],
+      travelByLegKey: travel([['a', 'b', 20]]),
+    });
+
+    expect(schedule.totals.complete).toBe(true);
+    expect(schedule.totals.blockedBy).toBeNull();
+    expect(schedule.stops.every((entry) => entry.blockedBy === null)).toBe(true);
+  });
+});

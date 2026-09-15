@@ -79,3 +79,78 @@ export function moveStopToDay(
 
   return insertStop(removeStop(days, stopId), targetDayId, { ...stop, dayId: targetDayId });
 }
+
+/** Day settings, as `updateItineraryDayAction` will store them. */
+export function updateDay(
+  days: readonly ItineraryDayView[],
+  dayId: string,
+  change: {
+    startLocalTime: string;
+    timeZone: string;
+    defaultTransportMode: ItineraryDayView['defaultTransportMode'];
+  },
+): ItineraryDayView[] {
+  return mapDay(days, dayId, (day) => ({ ...day, ...change }));
+}
+
+/**
+ * One place and the journey out of it, as `saveItineraryStopAction` stores them.
+ *
+ * The leg is keyed by the ordered pair of stops, so an existing preference for
+ * that exact pair is updated and anything else is left alone — a preference for
+ * a pair that is no longer adjacent stays where it is, ready if the order comes
+ * back.
+ */
+export function updateStop(
+  days: readonly ItineraryDayView[],
+  stopId: string,
+  stop: {
+    name: string;
+    notes: string | null;
+    visitDurationMinutes: number | null;
+    notBeforeLocalTime: string | null;
+    enabled: boolean;
+  },
+  leg: {
+    destinationStopId: string;
+    transportMode: ItineraryDayView['defaultTransportMode'];
+    manualDurationMinutes: number | null;
+    notes: string | null;
+  } | null,
+): ItineraryDayView[] {
+  return days.map((day) => {
+    if (!day.stops.some((candidate) => candidate.id === stopId)) return day;
+
+    const stops = day.stops.map((candidate) =>
+      candidate.id === stopId ? { ...candidate, ...stop } : candidate,
+    );
+
+    if (!leg) return { ...day, stops };
+
+    const existing = day.legPreferences.find(
+      (preference) =>
+        preference.originStopId === stopId &&
+        preference.destinationStopId === leg.destinationStopId,
+    );
+
+    const legPreferences = existing
+      ? day.legPreferences.map((preference) =>
+          preference.id === existing.id ? { ...preference, ...leg } : preference,
+        )
+      : [
+          ...day.legPreferences,
+          {
+            // Only this optimistic view ever sees this id; the real row
+            // replaces it when the server answers.
+            id: `optimistic:${stopId}->${leg.destinationStopId}`,
+            dayId: day.id,
+            originStopId: stopId,
+            selectedRouteReference: null,
+            visibleOnMap: true,
+            ...leg,
+          },
+        ];
+
+    return { ...day, stops, legPreferences };
+  });
+}

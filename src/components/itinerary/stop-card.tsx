@@ -9,7 +9,8 @@ export interface StopCardProps {
   /** 1-based order among enabled stops; null when the stop is excluded. */
   order: number | null;
   timing: ScheduleStopResult | undefined;
-  busy: boolean;
+  /** Why the time is not known yet, already phrased for the reader. */
+  blockedReason: string | null;
   onOpen: () => void;
   /** Pointer-driven reordering; see use-reorder.ts. */
   onGripPointerDown: (event: React.PointerEvent) => void;
@@ -25,7 +26,7 @@ export function StopCard({
   stop,
   order,
   timing,
-  busy,
+  blockedReason,
   onOpen,
   onGripPointerDown,
   registerElement,
@@ -48,9 +49,8 @@ export function StopCard({
       */}
       <button
         type="button"
-        disabled={busy}
         onPointerDown={onGripPointerDown}
-        className="flex w-12 shrink-0 touch-none cursor-grab flex-col items-center justify-center gap-1 self-stretch border-r border-line bg-canvas/70 text-muted hover:bg-canvas hover:text-ink active:cursor-grabbing disabled:cursor-not-allowed"
+        className="flex w-12 shrink-0 touch-none cursor-grab flex-col items-center justify-center gap-1 self-stretch border-r border-line bg-canvas/70 text-muted hover:bg-canvas hover:text-ink active:cursor-grabbing"
       >
         <span
           aria-hidden
@@ -82,7 +82,7 @@ export function StopCard({
           <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-ink-soft">
             {stop.enabled ? (
               incomplete ? (
-                <span className="text-muted">เวลายังคำนวณไม่ได้</span>
+                <span className="text-muted">{blockedReason ?? 'เวลายังคำนวณไม่ได้'}</span>
               ) : (
                 <>
                   <span>

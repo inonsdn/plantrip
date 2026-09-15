@@ -29,6 +29,18 @@ export function Sheet({
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const titleId = useId();
 
+  // `onClose` is almost always an inline arrow, so it is a new function on
+  // every render of whatever owns the sheet. Depending on it here meant the
+  // effect below tore down and re-ran whenever the parent re-rendered — and its
+  // cleanup moves focus back to whatever was focused before the sheet opened.
+  // On a phone that closes the keyboard mid-sentence: a background save landing
+  // was enough to do it. The effect wants to run when `open` changes and at no
+  // other time, so the callback is read through a ref instead.
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  });
+
   useEffect(() => {
     if (!open) return;
 
@@ -46,7 +58,7 @@ export function Sheet({
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        closeRef.current();
         return;
       }
       if (event.key !== 'Tab' || !panelRef.current) return;
@@ -75,7 +87,7 @@ export function Sheet({
       document.body.style.overflow = overflow;
       previouslyFocused.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

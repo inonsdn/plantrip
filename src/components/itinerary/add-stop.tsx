@@ -26,13 +26,16 @@ export interface NewStopInput {
 export function AddStopForm({
   tripId,
   searchEnabled,
-  busy,
   onAdd,
 }: {
   tripId: string;
   /** True only when a places provider is configured; search is hidden otherwise. */
   searchEnabled: boolean;
-  busy: boolean;
+  /**
+   * Starts the save and returns. Nothing here waits for it: the queue keeps the
+   * new place on screen, so the form never disables its own fields — a disabled
+   * input loses focus, and losing focus closes the keyboard mid-sentence.
+   */
   onAdd: (stop: NewStopInput) => void;
 }) {
   const [name, setName] = useState('');
@@ -123,10 +126,9 @@ export function AddStopForm({
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="ค้นหาสถานที่"
                 aria-label="ค้นหาสถานที่"
-                disabled={busy}
               />
             </span>
-            <Button type="submit" variant="secondary" disabled={busy || searching || !query.trim()}>
+            <Button type="submit" variant="secondary" disabled={searching || !query.trim()}>
               {searching ? (
                 <Loader2 aria-hidden className="size-4 animate-spin" />
               ) : (
@@ -143,7 +145,6 @@ export function AddStopForm({
                   <li key={`${place.placeId ?? place.name}-${index}`}>
                     <button
                       type="button"
-                      disabled={busy}
                       onClick={() => addFromResult(place)}
                       className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-line px-2.5 py-2 text-left text-sm hover:bg-canvas"
                     >
@@ -179,7 +180,6 @@ export function AddStopForm({
               if (error) setError(null);
             }}
             placeholder="เช่น สนามบินชิโตเซะ"
-            disabled={busy}
           />
         </Field>
 
@@ -187,7 +187,6 @@ export function AddStopForm({
           <TimeField
             value={arriveAt}
             onChange={setArriveAt}
-            disabled={busy}
             clearable
             hourLabel="ชั่วโมงที่จะไปถึงของสถานที่ใหม่"
             minuteLabel="นาทีที่จะไปถึงของสถานที่ใหม่"
@@ -197,13 +196,12 @@ export function AddStopForm({
         <Field label="อยู่ที่นี่นานเท่าไร" hint="เลือกไม่ระบุได้ถ้ายังไม่รู้">
           <DurationField
             value={duration}
-            disabled={busy}
             onChange={setDuration}
             label="เวลาที่อยู่ (นาที)"
           />
         </Field>
 
-        <Button type="submit" disabled={busy}>
+        <Button type="submit">
           <Plus aria-hidden className="size-4" />
           เพิ่มลงในวันนี้
         </Button>
