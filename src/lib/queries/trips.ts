@@ -1,6 +1,7 @@
 import 'server-only';
 import { cache } from 'react';
 import { createSupabaseServerClient } from '../supabase/server';
+import { getCurrentUser } from '../auth';
 import { numericToString, toMinorUnits } from '../money';
 import type { TripContext, TripMemberView, TripSummaryView } from '../types';
 import type { TripMemberRow } from '../supabase/database.types';
@@ -48,9 +49,7 @@ export const getTripContext = cache(async function getTripContext(
   if (!isUuid(tripId)) return null;
 
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return null;
 
   const { data: trip } = await supabase
@@ -103,14 +102,29 @@ export const getTripContext = cache(async function getTripContext(
 /** Every trip the signed-in user owns or has joined, newest first. */
 export async function listTripSummaries(): Promise<TripSummaryView[]> {
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return [];
+
+  // Start from the user's own memberships rather than from every trip that
+  // exists. Without this the query asked for the whole trips table and let row
+  // level security discard the rest, which meant the work grew with the number
+  // of trips *everybody* had: with 403 trips in the table it read 1,416 pages
+  // and ran the membership check 403 times to return 12 rows.
+  const { data: myMemberships, error: membershipError } = await supabase
+    .from('trip_members')
+    .select('trip_id')
+    .eq('user_id', user.id)
+    .is('removed_at', null);
+
+  if (membershipError) throw new Error(membershipError.message);
+
+  const myTripIds = [...new Set((myMemberships ?? []).map((row) => row.trip_id))];
+  if (myTripIds.length === 0) return [];
 
   const { data: trips, error } = await supabase
     .from('trips')
     .select('id, name, destination, start_date, end_date, base_currency, owner_id, created_at')
+    .in('id', myTripIds)
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);

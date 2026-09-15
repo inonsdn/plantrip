@@ -1,14 +1,24 @@
+import { cache } from 'react';
 import { redirect } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
 import { createSupabaseServerClient } from './supabase/server';
 
-export async function getCurrentUser(): Promise<User | null> {
+/**
+ * Memoised for the lifetime of one render.
+ *
+ * `auth.getUser()` is not a cookie read: it is an HTTP call to GoTrue, which
+ * then queries auth.users, auth.sessions, auth.identities, auth.mfa_factors and
+ * auth.mfa_amr_claims. A trip page used to make that round trip three times —
+ * once in the proxy, once in the layout's requireUser, once in getTripContext —
+ * for a single navigation.
+ */
+export const getCurrentUser = cache(async function getCurrentUser(): Promise<User | null> {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   return user ?? null;
-}
+});
 
 /**
  * Server-side guard. `nextPath` is where the user is sent back to once they
