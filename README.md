@@ -281,16 +281,25 @@ in conflict with nothing. When the server refuses, the whole batch is dropped,
 the list snaps back to what the server actually holds, and a toast says what
 failed and offers to retry it.
 
-**The version an edit is checked against comes from the server.** Every
+**The version an edit is checked against comes from the server, and is kept
+for as long as the page is open.** Every
 bumping action returns the day's new `version`, and the queue sends that with
 the next change (`queue-policy.ts`). It used to count its own bumps and add
 them to whatever the last render showed, which races the revalidation carrying
 those same bumps: the moment it lands the count is applied twice and the next
 edit is refused with `40001` for a conflict that never happened. Those
 refusals were invisible — PostgreSQL does not record a statement that raises,
-so only the PostgREST pre-request before each one was counted. Three refusals
-inside fifteen seconds stop the queue outright and ask for a reload; that
-backstop bounds any retry loop, whatever starts it.
+so only the PostgREST pre-request before each one was counted. It is held in a ref, not in the drain
+loop: the queue goes idle between edits, and a version thrown away there is a
+version read back off a page that is one save behind — save once, and every
+save after it was refused until the page was reloaded. Where the reported
+number and the page disagree, the larger wins; a version only ever increases,
+so neither source can be ahead of the truth.
+
+Twenty refusals inside ten seconds stop the queue outright and ask for a
+reload. That is far above anyone editing a trip and far below the 653 requests
+a second the runaway managed, and a halted queue says so on every attempt —
+a change dropped in silence looks exactly like one that saved.
 
 Nothing in the planner disables itself while a save is in flight. A disabled
 input loses focus, and on a phone losing focus closes the keyboard — a save

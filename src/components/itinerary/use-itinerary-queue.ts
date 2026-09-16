@@ -60,6 +60,10 @@ export function useItineraryQueue(serverDays: ItineraryDayView[]) {
   const pending = useRef<ItineraryTask[]>([]);
   const running = useRef(false);
   const failures = useRef<number[]>([]);
+  // Lives as long as this planner does, not as long as one batch. The server's
+  // answer has to survive the queue going idle, or the next edit falls back to
+  // the page — which is a version behind until its revalidation lands.
+  const known = useRef<KnownVersions>(new Map());
   const [halted, setHalted] = useState(false);
   const latest = useRef({ serverDays, router, showToast });
 
@@ -90,21 +94,13 @@ export function useItineraryQueue(serverDays: ItineraryDayView[]) {
     if (running.current) return;
     running.current = true;
 
-    // What the server last told us each day's version is. Seeded from the page
-    // we are looking at, then replaced by the number the server returns from
-    // each change — never by arithmetic. Counting our own bumps and adding them
-    // to the last render raced the revalidation carrying those same bumps, and
-    // every wrong guess came back as 40001 for an edit that conflicted with
-    // nothing at all.
-    const known: KnownVersions = new Map();
-
     try {
       while (pending.current.length > 0) {
         const task = pending.current[0];
 
         const expected = expectedVersion(
           task.dayId,
-          known,
+          known.current,
           (dayId) => latest.current.serverDays.find((day) => day.id === dayId)?.version ?? null,
         );
 
@@ -116,6 +112,9 @@ export function useItineraryQueue(serverDays: ItineraryDayView[]) {
           pending.current = [];
           setQueued([]);
           setAccepted([]);
+          // Out of step with the server: forget what we thought we knew and
+          // start again from whatever the refresh below brings back.
+          known.current = new Map();
 
           failures.current = noteFailure(failures.current, Date.now());
           const givingUp = shouldStop(failures.current);
@@ -142,7 +141,7 @@ export function useItineraryQueue(serverDays: ItineraryDayView[]) {
         // A run that landed clears the streak: this tab and the server agree.
         failures.current = [];
 
-        recordVersion(known, task.dayId, result.data?.version, task.invalidates);
+        recordVersion(known.current, task.dayId, result.data?.version, task.invalidates);
 
         pending.current = pending.current.slice(1);
         setQueued([...pending.current]);
@@ -157,7 +156,18 @@ export function useItineraryQueue(serverDays: ItineraryDayView[]) {
     (task: ItineraryTask) => {
       // Once the queue has given up, nothing else is sent until the page is
       // reloaded. This is the backstop: whatever starts a loop, it stops here.
-      if (halted) return;
+      //
+      // It must never be quiet about it. Dropping the task silently is what a
+      // save that "just does not happen" looks like from the outside: the
+      // dialog closes, the change disappears, and nothing says why.
+      if (halted) {
+        latest.current.showToast({
+          message: `${task.label}ไม่ถูกบันทึก · หยุดบันทึกไว้เพราะเซิร์ฟเวอร์ปฏิเสธซ้ำหลายครั้ง กรุณาโหลดหน้านี้ใหม่`,
+          tone: 'error',
+          action: { label: 'โหลดใหม่', onClick: () => window.location.reload() },
+        });
+        return;
+      }
       pending.current = [...pending.current, task];
       setQueued([...pending.current]);
       void drain();

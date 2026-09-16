@@ -18,15 +18,23 @@ describe('the expected version is never invented', () => {
     expect(expectedVersion('d1', known, onScreen({ d1: 5 }))).toBe(5);
   });
 
-  it('uses what the server reported, not the screen, once the batch has one', () => {
+  it('uses what the server reported while the page is still behind', () => {
     const known: KnownVersions = new Map();
     recordVersion(known, 'd1', 6);
-    // The page still shows 5 — the revalidation has not landed yet. Adding our
-    // own bump to 5 would be right now and wrong the moment it does land, which
-    // is exactly the race that produced 40001 for edits in conflict with
-    // nothing.
+    // The page still shows 5 — the revalidation has not landed yet. Sending 5
+    // is what made the second edit of a session fail, every time, until the
+    // page was reloaded.
     expect(expectedVersion('d1', known, onScreen({ d1: 5 }))).toBe(6);
     expect(expectedVersion('d1', known, onScreen({ d1: 6 }))).toBe(6);
+  });
+
+  it('defers to the page once it is ahead of us', () => {
+    const known: KnownVersions = new Map();
+    recordVersion(known, 'd1', 6);
+    // Somebody else edited and their change reached us. A version only ever
+    // increases, so the larger number is simply the one that has seen more —
+    // and 9 is what the next edit must be checked against.
+    expect(expectedVersion('d1', known, onScreen({ d1: 9 }))).toBe(9);
   });
 
   it('sends nothing to check against when the new version was not reported', () => {
@@ -46,6 +54,20 @@ describe('the expected version is never invented', () => {
 
   it('checks nothing for a task that is not about one day', () => {
     expect(expectedVersion(null, new Map(), onScreen({ d1: 5 }))).toBeNull();
+  });
+
+  it('survives the queue going idle between edits', () => {
+    const known: KnownVersions = new Map();
+    // One save lands and the page has not caught up. This is the whole of
+    // "edit once, then never again": the next edit used to read 5 off the page
+    // and be refused, because what the server said was thrown away when the
+    // queue emptied.
+    recordVersion(known, 'd1', 6);
+    expect(expectedVersion('d1', known, onScreen({ d1: 5 }))).toBe(6);
+    recordVersion(known, 'd1', 7);
+    expect(expectedVersion('d1', known, onScreen({ d1: 5 }))).toBe(7);
+    recordVersion(known, 'd1', 8);
+    expect(expectedVersion('d1', known, onScreen({ d1: 5 }))).toBe(8);
   });
 
   it('walks a whole batch without ever guessing', () => {
@@ -71,9 +93,18 @@ describe('the queue stops rather than retrying forever', () => {
     expect(shouldStop(failures)).toBe(false);
   });
 
+  it('leaves room for a person hitting a real conflict twice in a row', () => {
+    let failures: number[] = [];
+    // Two refusals a few seconds apart, which is as fast as anyone edits.
+    failures = noteFailure(failures, 1_000);
+    failures = noteFailure(failures, 4_000);
+    expect(shouldStop(failures)).toBe(false);
+  });
+
   it('gives up once refusals pile up inside the window', () => {
     let failures: number[] = [];
-    for (let i = 0; i < FAILURE_LIMIT; i += 1) failures = noteFailure(failures, 1_000 + i * 100);
+    // A loop, not a person: the runaway managed 653 a second.
+    for (let i = 0; i < FAILURE_LIMIT; i += 1) failures = noteFailure(failures, 1_000 + i);
     expect(shouldStop(failures)).toBe(true);
   });
 

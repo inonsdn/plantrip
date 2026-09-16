@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { CalendarDays, MapPin, MoonStar, Pencil, Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/states';
 import { useToast } from '@/components/ui/toast';
 import { Sheet } from '@/components/ui/sheet';
@@ -60,7 +61,7 @@ export function ItineraryPlanner({
 
   // List edits land on screen at once and are reconciled in the background;
   // the dialogs below still wait for their own confirmation.
-  const { days, enqueue } = useItineraryQueue(serverDays);
+  const { days, enqueue, halted } = useItineraryQueue(serverDays);
 
   const [selectedDayId, setSelectedDayId] = useState<string | null>(days[0]?.id ?? null);
   const [addOpen, setAddOpen] = useState(false);
@@ -495,6 +496,23 @@ export function ItineraryPlanner({
         </span>
         <Pencil aria-hidden className="size-4 shrink-0 text-muted" />
       </button>
+
+      {halted ? (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-negative/30 bg-negative-soft px-4 py-3"
+        >
+          <p className="text-sm leading-6 text-ink">
+            หยุดบันทึกไว้ชั่วคราว เพราะเซิร์ฟเวอร์ปฏิเสธการแก้ไขซ้ำหลายครั้ง
+            <span className="mt-0.5 block text-xs text-ink-soft">
+              การแก้ไขหลังจากนี้จะไม่ถูกบันทึกจนกว่าจะโหลดหน้านี้ใหม่
+            </span>
+          </p>
+          <Button type="button" size="sm" onClick={() => window.location.reload()}>
+            โหลดหน้าใหม่
+          </Button>
+        </div>
+      ) : null}
 
       {dayBlocker ? (
         <p className="rounded-lg border border-accent/30 bg-accent-soft px-3 py-2 text-xs leading-5 text-ink-soft">

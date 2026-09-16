@@ -87,6 +87,27 @@ describe('the queue never invents a version, and never retries forever', () => {
     expect(queue).toContain('shouldStop(');
     expect(queue).toContain('setHalted(true)');
     // The backstop only works if enqueue itself honours it.
-    expect(queue).toMatch(/if \(halted\) return;/);
+    expect(queue).toMatch(/if \(halted\) \{/);
+  });
+
+  it('never drops a change without saying so', () => {
+    // A halted queue that returns quietly is indistinguishable from a save
+    // that worked: the dialog closes, the change disappears, nothing explains
+    // it. Every refused enqueue has to reach the person.
+    const halted = queue.slice(queue.indexOf('if (halted) {'));
+    const body = halted.slice(0, halted.indexOf('return;'));
+    expect(body).toContain('showToast');
+  });
+
+  it('keeps the version the server reported for the whole session', () => {
+    // Not a local inside drain(): the queue goes idle between edits, and a
+    // version thrown away there is a version read back off a stale page.
+    expect(queue).toContain('useRef<KnownVersions>');
+    expect(queue).not.toMatch(/const known: KnownVersions = new Map\(\);/);
+  });
+
+  it('shows the person that saving has stopped', () => {
+    expect(planner).toContain('halted');
+    expect(planner).toContain('โหลดหน้าใหม่');
   });
 });
