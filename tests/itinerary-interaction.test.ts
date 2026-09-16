@@ -6,6 +6,7 @@ const planner = readFileSync('src/components/itinerary/itinerary-planner.tsx', '
 const addStop = readFileSync('src/components/itinerary/add-stop.tsx', 'utf8');
 const stopDialog = readFileSync('src/components/itinerary/stop-dialog.tsx', 'utf8');
 const dayDialog = readFileSync('src/components/itinerary/day-dialog.tsx', 'utf8');
+const queue = readFileSync('src/components/itinerary/use-itinerary-queue.ts', 'utf8');
 
 /**
  * The sheet's focus effect restores focus on cleanup. `onClose` is an inline
@@ -56,5 +57,36 @@ describe('every itinerary mutation goes through the queue', () => {
       expect(source).not.toContain('disabled={busy}');
       expect(source).not.toContain('busy: boolean');
     }
+  });
+});
+
+/**
+ * The version sent with an edit comes from the server, never from counting.
+ *
+ * The queue used to add its own bumps to whatever the last render showed. That
+ * races the revalidation carrying those same bumps: once it lands the count is
+ * applied twice, and the next edit is refused with 40001 for a conflict that
+ * never happened. Postgres does not record a statement that raises, so those
+ * refusals were invisible in pg_stat_statements — only the PostgREST
+ * pre-request that preceded each one was counted.
+ */
+describe('the queue never invents a version, and never retries forever', () => {
+  it('does no arithmetic on versions', () => {
+    // The old shape: a local tally of our own bumps added to the last render.
+    expect(queue).not.toContain('task.bumps');
+    expect(queue).not.toMatch(/bumps\.(get|set)\b/);
+    expect(queue).not.toMatch(/serverVersion\s*\+/);
+  });
+
+  it('reads the expected version through the tested policy', () => {
+    expect(queue).toContain('expectedVersion(');
+    expect(queue).toContain('recordVersion(');
+  });
+
+  it('stops sending once refusals pile up', () => {
+    expect(queue).toContain('shouldStop(');
+    expect(queue).toContain('setHalted(true)');
+    // The backstop only works if enqueue itself honours it.
+    expect(queue).toMatch(/if \(halted\) return;/);
   });
 });

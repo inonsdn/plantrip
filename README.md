@@ -148,6 +148,7 @@ order:
 | `20240101001400_rls_performance.sql` | Rewrites every policy to compare against a set built once per query instead of calling a `SECURITY DEFINER` helper per row, and adds the `trip_id` indexes the itinerary queries were missing |
 | `20240101001500_write_amplification.sql` | `on_auth_user_created` fires on insert only, and `reorder_itinerary_stops` writes each stop once instead of twice |
 | `20240101001600_join_returns_instead_of_raising.sql` | A dead invite token returns null instead of raising, so it neither aborts the transaction nor hides itself from `pg_stat_statements` |
+| `20240101001700_reorder_is_idempotent.sql` | Reordering to the order a day is already in returns the current version instead of refusing on a stale one — a resent request is a no-op, so a retrying client stops instead of looping |
 
 **Option A — Supabase CLI (recommended):**
 
@@ -279,6 +280,17 @@ second one's expected version stale and the server would reject an edit that was
 in conflict with nothing. When the server refuses, the whole batch is dropped,
 the list snaps back to what the server actually holds, and a toast says what
 failed and offers to retry it.
+
+**The version an edit is checked against comes from the server.** Every
+bumping action returns the day's new `version`, and the queue sends that with
+the next change (`queue-policy.ts`). It used to count its own bumps and add
+them to whatever the last render showed, which races the revalidation carrying
+those same bumps: the moment it lands the count is applied twice and the next
+edit is refused with `40001` for a conflict that never happened. Those
+refusals were invisible — PostgreSQL does not record a statement that raises,
+so only the PostgREST pre-request before each one was counted. Three refusals
+inside fifteen seconds stop the queue outright and ask for a reload; that
+backstop bounds any retry loop, whatever starts it.
 
 Nothing in the planner disables itself while a save is in flight. A disabled
 input loses focus, and on a phone losing focus closes the keyboard — a save
