@@ -124,6 +124,25 @@ npm run dev
 3. Leave the **service_role** key where it is. TripMate does not need it (see
    [Security notes](#security-notes)).
 
+### Browser tests for the queue
+
+`npm test` runs two projects. The node one covers pure logic; the browser one
+(`npm run test:browser`) drives the real hook, the real `Sheet`, real
+`localStorage` and real focus in Chromium, with only the queue's own dispatcher
+stubbed. Every bug this queue has shipped lived in how those fit together
+rather than in the logic each piece runs, so each browser test was checked by
+putting the original bug back and watching exactly that test fail:
+
+| put back | the test that fails |
+| --- | --- |
+| `known` scoped to one batch | the second edit is checked against the version the server just gave |
+| `if (halted) return;` with no toast | a halted queue never drops a change in silence |
+| `FAILURE_LIMIT = 3` | a person who hits a real conflict twice is left alone |
+| `}, [open, onClose])` in `Sheet` | the caret stays where it is when the owner re-renders |
+
+The container ships its own Chromium, so the Playwright provider is pointed at
+it through `CHROMIUM_PATH` rather than downloading one.
+
 ### One action, one write
 
 A Next.js server action is not a transaction. Every Supabase call inside one is
