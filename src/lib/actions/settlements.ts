@@ -7,7 +7,7 @@ import { getTripContext } from '../queries/trips';
 import { listExpenses, listSettlements } from '../queries/expenses';
 import { computeExpenseDebts } from '../settlement';
 import { toCalcExpense } from '../trip-stats';
-import { fromMinorUnits, toMinorUnits } from '../money';
+import { fromMinorUnits, numericToString, toMinorUnits } from '../money';
 import { fieldErrors, settlementInputSchema } from '../validation';
 import { fail, friendlyError, ok, type ActionResult } from './result';
 
@@ -166,44 +166,32 @@ export async function settleAllAction(
   }
 
   const supabase = await createSupabaseServerClient();
-  const user = await getCurrentUser();
 
-  const now = new Date().toISOString();
+  // Recording the transfers and confirming the claims are one change. As two
+  // requests, a failure between them left money written down as transferred
+  // with nothing confirmed — and reported the whole thing as failed, so the
+  // next attempt hit its own rows and refused with "มีบางรายการถูกบันทึกไปแล้ว".
+  const { error } = await supabase.rpc('settle_all_expenses', {
+    p_trip_id: tripId,
+    p_new: toInsert.map((debt) => {
+      const confirmed = canConfirmReceipt(context, debt.toMemberId);
+      return {
+        expense_id: debt.expenseId,
+        from_member_id: debt.fromMemberId,
+        to_member_id: debt.toMemberId,
+        amount_base: numericToString(fromMinorUnits(debt.amountMinor, currency)),
+        status: confirmed ? 'paid' : 'pending',
+        note: descriptionById.get(debt.expenseId) ?? null,
+      };
+    }),
+    p_confirm: toConfirm,
+  });
 
-  if (toInsert.length > 0) {
-    const { error } = await supabase.from('settlements').insert(
-      toInsert.map((debt) => {
-        const confirmed = canConfirmReceipt(context, debt.toMemberId);
-        return {
-          trip_id: tripId,
-          expense_id: debt.expenseId,
-          from_member_id: debt.fromMemberId,
-          to_member_id: debt.toMemberId,
-          amount_base: fromMinorUnits(debt.amountMinor, currency),
-          status: confirmed ? ('paid' as const) : ('pending' as const),
-          paid_at: confirmed ? now : null,
-          note: descriptionById.get(debt.expenseId) ?? null,
-          created_by: user?.id ?? null,
-        };
-      }),
-    );
-
-    if (error) {
-      if ((error as { code?: string }).code === '23505') {
-        return fail('มีบางรายการถูกบันทึกไปแล้วระหว่างนี้ กรุณาลองใหม่อีกครั้ง');
-      }
-      return fail(friendlyError(error, 'บันทึกการโอนไม่สำเร็จ'));
+  if (error) {
+    if ((error as { code?: string }).code === '23505') {
+      return fail('มีบางรายการถูกบันทึกไปแล้วระหว่างนี้ กรุณาลองใหม่อีกครั้ง');
     }
-  }
-
-  if (toConfirm.length > 0) {
-    const { error } = await supabase
-      .from('settlements')
-      .update({ status: 'paid', paid_at: now })
-      .in('id', toConfirm)
-      .eq('trip_id', tripId);
-
-    if (error) return fail(friendlyError(error, 'ยืนยันการรับเงินไม่สำเร็จ'));
+    return fail(friendlyError(error, 'บันทึกการโอนไม่สำเร็จ'));
   }
 
   revalidatePath(`/trips/${tripId}`, 'layout');

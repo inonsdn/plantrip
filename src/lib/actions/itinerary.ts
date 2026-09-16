@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createSupabaseServerClient } from '../supabase/server';
-import { getCurrentUser } from '../auth';
 import { getTripContext } from '../queries/trips';
 import { fieldErrors } from '../validation';
 import { TRANSPORT_MODES } from '../itinerary/schedule';
@@ -76,25 +75,16 @@ export async function updateItineraryDayAction(
   if (!context) return fail('ไม่พบทริปนี้ หรือคุณไม่มีสิทธิ์เข้าถึง');
 
   const supabase = await createSupabaseServerClient();
-  // The new version comes back so the caller never has to guess it. Guessing —
-  // counting your own bumps and adding them to whatever the last render showed
-  // — races the revalidation that carries those same bumps, and every wrong
-  // guess is a 40001 for an edit that conflicted with nothing.
-  const { data: version, error: versionError } = await supabase.rpc('bump_itinerary_day', {
+  // One function, one transaction. As two requests the version bumped even
+  // when the update that followed it failed.
+  const { data: version, error } = await supabase.rpc('update_itinerary_day', {
+    p_trip_id: value.tripId,
     p_day_id: value.dayId,
+    p_start_local_time: value.startLocalTime ?? null,
+    p_time_zone: value.timeZone ?? null,
+    p_default_transport_mode: value.defaultTransportMode ?? null,
     p_expected_version: value.expectedVersion ?? null,
   });
-  if (versionError) return fail(friendlyError(versionError, 'บันทึกไม่สำเร็จ'));
-
-  const { error } = await supabase
-    .from('itinerary_days')
-    .update({
-      ...(value.startLocalTime ? { start_local_time: value.startLocalTime } : {}),
-      ...(value.timeZone ? { time_zone: value.timeZone } : {}),
-      ...(value.defaultTransportMode ? { default_transport_mode: value.defaultTransportMode } : {}),
-    })
-    .eq('id', value.dayId)
-    .eq('trip_id', value.tripId);
 
   if (error) return fail(friendlyError(error, 'บันทึกวันไม่สำเร็จ'));
   revalidateTrip(value.tripId);
@@ -139,54 +129,20 @@ export async function addItineraryStopAction(
   if (!context) return fail('ไม่พบทริปนี้ หรือคุณไม่มีสิทธิ์เข้าถึง');
 
   const supabase = await createSupabaseServerClient();
-
-  // The day must belong to this trip; the composite keys enforce it too, but
-  // failing here gives a readable message instead of a constraint error.
-  const { data: day } = await supabase
-    .from('itinerary_days')
-    .select('id')
-    .eq('id', value.dayId)
-    .eq('trip_id', value.tripId)
-    .maybeSingle();
-  if (!day) return fail('ไม่พบวันนี้ในแผนการเดินทาง');
-
-  const { data: version, error: versionError } = await supabase.rpc('bump_itinerary_day', {
+  const { data: version, error } = await supabase.rpc('add_itinerary_stop', {
+    p_trip_id: value.tripId,
     p_day_id: value.dayId,
+    p_id: value.id,
+    p_name: value.name,
+    p_address: value.address ?? null,
+    p_latitude: value.latitude ?? null,
+    p_longitude: value.longitude ?? null,
+    p_place_provider: value.placeProvider,
+    p_place_id: value.placeId ?? null,
+    p_visit_duration_minutes: value.visitDurationMinutes ?? null,
+    p_not_before_local_time: value.notBeforeLocalTime ?? null,
     p_expected_version: value.expectedVersion ?? null,
   });
-  if (versionError) return fail(friendlyError(versionError, 'บันทึกไม่สำเร็จ'));
-
-  const { data: last } = await supabase
-    .from('itinerary_stops')
-    .select('position')
-    .eq('day_id', value.dayId)
-    .is('deleted_at', null)
-    .order('position', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const user = await getCurrentUser();
-
-  const { error } = await supabase.from('itinerary_stops').upsert(
-    {
-      id: value.id,
-      day_id: value.dayId,
-      trip_id: value.tripId,
-      position: (last?.position ?? -1) + 1,
-      place_provider: value.placeProvider,
-      place_id: value.placeId ?? null,
-      name: value.name,
-      address: value.address ?? null,
-      latitude: value.latitude ?? null,
-      longitude: value.longitude ?? null,
-      visit_duration_minutes: value.visitDurationMinutes ?? null,
-      not_before_local_time: value.notBeforeLocalTime ?? null,
-      created_by: user?.id ?? null,
-    },
-    // A replay of a change that already landed is not an error and must not
-    // overwrite whatever has been edited since: it simply does nothing.
-    { onConflict: 'id', ignoreDuplicates: true },
-  );
 
   if (error) return fail(friendlyError(error, 'เพิ่มสถานที่ไม่สำเร็จ'));
   revalidateTrip(value.tripId);
@@ -338,50 +294,25 @@ export async function saveItineraryStopAction(
   if (!context) return fail('ไม่พบทริปนี้ หรือคุณไม่มีสิทธิ์เข้าถึง');
 
   const supabase = await createSupabaseServerClient();
-  const { data: stop } = await supabase
-    .from('itinerary_stops')
-    .select('day_id')
-    .eq('id', value.stopId)
-    .eq('trip_id', value.tripId)
-    .maybeSingle();
-  if (!stop) return fail('ไม่พบสถานที่นี้');
-
-  const { data: version, error: versionError } = await supabase.rpc('bump_itinerary_day', {
-    p_day_id: stop.day_id,
+  // The place and the journey out of it move together or not at all. As three
+  // separate requests a failure on the last one left the day's version bumped
+  // and the place already saved, while the caller was told the save failed.
+  const { data: version, error } = await supabase.rpc('save_itinerary_stop', {
+    p_trip_id: value.tripId,
+    p_stop_id: value.stopId,
+    p_name: value.stop.name,
+    p_notes: value.stop.notes,
+    p_visit_duration_minutes: value.stop.visitDurationMinutes,
+    p_not_before_local_time: value.stop.notBeforeLocalTime,
+    p_enabled: value.stop.enabled,
+    p_leg_destination_stop_id: value.leg?.destinationStopId ?? null,
+    p_leg_transport_mode: value.leg?.transportMode ?? null,
+    p_leg_manual_duration_minutes: value.leg?.manualDurationMinutes ?? null,
+    p_leg_notes: value.leg?.notes ?? null,
     p_expected_version: value.expectedVersion ?? null,
   });
-  if (versionError) return fail(friendlyError(versionError, 'บันทึกไม่สำเร็จ'));
-
-  const { error } = await supabase
-    .from('itinerary_stops')
-    .update({
-      name: value.stop.name,
-      notes: value.stop.notes,
-      visit_duration_minutes: value.stop.visitDurationMinutes,
-      not_before_local_time: value.stop.notBeforeLocalTime,
-      enabled: value.stop.enabled,
-    })
-    .eq('id', value.stopId)
-    .eq('trip_id', value.tripId);
 
   if (error) return fail(friendlyError(error, 'บันทึกสถานที่ไม่สำเร็จ'));
-
-  if (value.leg) {
-    const { error: legError } = await supabase.from('itinerary_leg_preferences').upsert(
-      {
-        day_id: stop.day_id,
-        trip_id: value.tripId,
-        origin_stop_id: value.stopId,
-        destination_stop_id: value.leg.destinationStopId,
-        transport_mode: value.leg.transportMode,
-        manual_duration_minutes: value.leg.manualDurationMinutes,
-        notes: value.leg.notes,
-      },
-      { onConflict: 'day_id,origin_stop_id,destination_stop_id' },
-    );
-    if (legError) return fail(friendlyError(legError, 'บันทึกการเดินทางไม่สำเร็จ'));
-  }
-
   revalidateTrip(value.tripId);
   return ok({ version });
 }
