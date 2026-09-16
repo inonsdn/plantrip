@@ -20,14 +20,8 @@ import {
 } from '@/lib/itinerary/queue-policy';
 import { loadQueue, saveQueue } from '@/lib/itinerary/queue-storage';
 import type { ItineraryDayView } from '@/lib/itinerary/types';
+import { uuid } from '@/lib/uuid';
 import { runOperation } from './run-operation';
-
-function newId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
-  // Only reached on a browser without randomUUID; uniqueness within one tab is
-  // all this needs, since it never becomes a database key on that path.
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
 
 /**
  * Optimistic itinerary edits, applied in order, one request at a time.
@@ -139,7 +133,7 @@ export function useItineraryQueue(tripId: string, serverDays: ItineraryDayView[]
               ? { label: 'โหลดใหม่', onClick: () => window.location.reload() }
               : {
                   label: 'ลองใหม่',
-                  onClick: () => enqueueRef.current({ ...change, id: newId(), resumed: true }),
+                  onClick: () => enqueueRef.current({ ...change, id: uuid(), resumed: true }),
                 },
           });
           // Out of step with the server: forget what we thought we knew and
@@ -179,6 +173,9 @@ export function useItineraryQueue(tripId: string, serverDays: ItineraryDayView[]
         });
         return;
       }
+      // The id is what settles this change later, so two of them would settle
+      // each other's. Nothing generates one twice, and this makes sure of it.
+      if (pending.current.some((entry) => entry.id === change.id)) return;
       pending.current = [...pending.current, change];
       publish();
       void drain();
@@ -190,10 +187,15 @@ export function useItineraryQueue(tripId: string, serverDays: ItineraryDayView[]
     enqueueRef.current = enqueue;
   }, [enqueue]);
 
-  /** Starts a change from an operation, giving it the id it keeps for life. */
+  /**
+   * Starts a change from an operation.
+   *
+   * The id is minted here, at the moment the person acts, and is the only one
+   * this change will ever have.
+   */
   const submit = useCallback(
     (operation: ItineraryOperation) => {
-      enqueueRef.current({ id: newId(), tripId, operation, queuedAt: Date.now() });
+      enqueueRef.current({ id: uuid(), tripId, operation, queuedAt: Date.now() });
     },
     [tripId],
   );

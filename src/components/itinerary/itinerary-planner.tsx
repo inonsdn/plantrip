@@ -10,6 +10,7 @@ import { useTripUi } from '@/components/trip/trip-shell';
 import { formatDateWithWeekday } from '@/lib/format';
 import { resolveLegs, type StoredLegPreference } from '@/lib/itinerary/legs';
 import type { ItineraryStopView } from '@/lib/itinerary/types';
+import { uuid } from '@/lib/uuid';
 import {
   computeDaySchedule,
   formatClock,
@@ -240,7 +241,7 @@ export function ItineraryPlanner({
     // draws now, what the database stores, and what makes a replay of this add
     // collide with itself rather than create the place twice.
     const stop: ItineraryStopView = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       dayId: day.id,
       position: Number.MAX_SAFE_INTEGER,
       placeProvider: input.placeProvider,

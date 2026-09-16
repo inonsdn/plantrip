@@ -272,10 +272,14 @@ restart.
 places with the journeys between them.
 
 **Every change is data, with a name of its own.** A queued change is an
-`ItineraryOperation` — a plain object saying what to do — carrying an id it
-keeps for its whole life: in the queue, in the toast that names it, and, for an
+`ItineraryOperation` — a plain object saying what to do — carrying a v4 UUID minted
+the moment the person acts, which it keeps for its whole life: in the queue, in the toast that names it, and, for an
 added place, as the primary key of the row it creates. That id is what lets the
-queue settle changes one at a time. The one the server takes leaves the queue;
+queue settle changes one at a time, so it has to be a real UUID and it has to
+be unique: `lib/uuid.ts` is the only place one is made, and it falls back from
+`crypto.randomUUID` (secure contexts only) to `crypto.getRandomValues` to
+`Math.random`, producing a canonical v4 either way — never a string that is
+merely unique-looking, which a `uuid` column would refuse. The one the server takes leaves the queue;
 the one it refuses is rolled back on its own and named in a toast, and
 everything behind it carries on. A refusal used to throw the whole batch away.
 

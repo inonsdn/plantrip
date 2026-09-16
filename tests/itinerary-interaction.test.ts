@@ -101,6 +101,23 @@ describe('the queue never invents a version, and never retries forever', () => {
     expect(body).toContain('showToast');
   });
 
+  it('mints every id from the one v4 UUID source', () => {
+    // A change id is written to storage and read back; an added place's id
+    // becomes a uuid primary key. Nothing else will do, and crypto.randomUUID
+    // on its own is not available outside a secure context.
+    for (const source of [queue, planner]) {
+      expect(source).toContain("from '@/lib/uuid'");
+      expect(source).not.toContain('crypto.randomUUID');
+      expect(source).not.toContain('Math.random');
+    }
+    expect(queue).toContain('id: uuid()');
+    expect(planner).toContain('id: uuid()');
+  });
+
+  it('refuses to queue the same id twice', () => {
+    expect(queue).toContain('pending.current.some((entry) => entry.id === change.id)');
+  });
+
   it('settles each change on its own instead of dropping the batch', () => {
     // A refusal used to clear the whole queue. Each change carries an id now,
     // so the one that failed leaves and the ones behind it carry on.
