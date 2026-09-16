@@ -271,6 +271,27 @@ restart.
 `/trips/<id>/itinerary` ("แผนการเดินทาง") plans each day as an ordered list of
 places with the journeys between them.
 
+**Every change is data, with a name of its own.** A queued change is an
+`ItineraryOperation` — a plain object saying what to do — carrying a v4 UUID minted
+the moment the person acts, which it keeps for its whole life: in the queue, in the toast that names it, and, for an
+added place, as the primary key of the row it creates. That id is what lets the
+queue settle changes one at a time, so it has to be a real UUID and it has to
+be unique: `lib/uuid.ts` is the only place one is made, and it falls back from
+`crypto.randomUUID` (secure contexts only) to `crypto.getRandomValues` to
+`Math.random`, producing a canonical v4 either way — never a string that is
+merely unique-looking, which a `uuid` column would refuse. The one the server takes leaves the queue;
+the one it refuses is rolled back on its own and named in a toast, and
+everything behind it carries on. A refusal used to throw the whole batch away.
+
+**An unsent change survives the app being closed.** While anything is waiting,
+the queue is written to browser storage (per trip, dropped after a day, capped
+at fifty) and picked up the next time the trip is opened. Every operation is
+idempotent, which is what makes replaying one that may already have landed
+safe: adding a place carries the row's primary key so a second attempt collides
+with the first, and every other operation writes absolute values. A replayed
+change is checked against no version at all — nothing we remembered before the
+app closed says anything about now.
+
 **Edits do not wait.** Every change — reordering, adding, editing a place or the
 journey out of it, day settings, deleting and its undo, moving a place to
 another day — appears immediately and is reconciled in the background by a
@@ -301,7 +322,10 @@ reload. That is far above anyone editing a trip and far below the 653 requests
 a second the runaway managed, and a halted queue says so on every attempt —
 a change dropped in silence looks exactly like one that saved.
 
-Nothing in the planner disables itself while a save is in flight. A disabled
+The only sign that a save is in flight is a spinner beside the trip name.
+Nothing in the planner disables itself, moves or takes focus while one is on
+its way: a refused save has to be able to roll back without interrupting
+whatever is being typed next. A disabled
 input loses focus, and on a phone losing focus closes the keyboard — a save
 landing in the background used to interrupt whatever was being typed next. For
 the same reason `Sheet` takes focus when it opens and at no other time: its
