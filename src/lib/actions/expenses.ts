@@ -74,18 +74,6 @@ export async function saveExpenseAction(
 
   const supabase = await createSupabaseServerClient();
 
-  // Remember the rate used for this currency so the next entry defaults to it.
-  if (value.currencyCode !== baseCurrency) {
-    await supabase.from('trip_currencies').upsert(
-      {
-        trip_id: value.tripId,
-        currency_code: value.currencyCode,
-        default_exchange_rate: value.exchangeRate,
-      },
-      { onConflict: 'trip_id,currency_code' },
-    );
-  }
-
   const { data, error } = await supabase.rpc('save_expense', {
     p_payload: {
       expense_id: value.expenseId ?? null,
@@ -120,6 +108,21 @@ export async function saveExpenseAction(
   });
 
   if (error || !data) return fail(friendlyError(error, 'บันทึกค่าใช้จ่ายไม่สำเร็จ'));
+
+  // Remembering the rate is a convenience for the next entry, not part of the
+  // expense — so it happens after the expense is safely stored, never before.
+  // Writing it first meant an expense that failed to save still left its rate
+  // behind as the trip's new default.
+  if (value.currencyCode !== baseCurrency) {
+    await supabase.from('trip_currencies').upsert(
+      {
+        trip_id: value.tripId,
+        currency_code: value.currencyCode,
+        default_exchange_rate: value.exchangeRate,
+      },
+      { onConflict: 'trip_id,currency_code' },
+    );
+  }
 
   revalidateTrip(value.tripId);
   return ok({ expenseId: data });

@@ -332,6 +332,55 @@ export type Database = {
         Args: { p_stop_id: string; p_target_day_id: string; p_expected_version?: number | null };
         Returns: number;
       };
+      update_itinerary_day: {
+        Args: {
+          p_trip_id: string;
+          p_day_id: string;
+          p_start_local_time: string | null;
+          p_time_zone: string | null;
+          p_default_transport_mode: TransportModeDb | null;
+          p_expected_version?: number | null;
+        };
+        Returns: number;
+      };
+      add_itinerary_stop: {
+        Args: {
+          p_trip_id: string;
+          p_day_id: string;
+          p_id: string;
+          p_name: string;
+          p_address?: string | null;
+          p_latitude?: number | null;
+          p_longitude?: number | null;
+          p_place_provider?: string;
+          p_place_id?: string | null;
+          p_visit_duration_minutes?: number | null;
+          p_not_before_local_time?: string | null;
+          p_expected_version?: number | null;
+        };
+        Returns: number;
+      };
+      save_itinerary_stop: {
+        Args: {
+          p_trip_id: string;
+          p_stop_id: string;
+          p_name: string;
+          p_notes: string | null;
+          p_visit_duration_minutes: number | null;
+          p_not_before_local_time: string | null;
+          p_enabled: boolean;
+          p_leg_destination_stop_id?: string | null;
+          p_leg_transport_mode?: TransportModeDb | null;
+          p_leg_manual_duration_minutes?: number | null;
+          p_leg_notes?: string | null;
+          p_expected_version?: number | null;
+        };
+        Returns: number;
+      };
+      settle_all_expenses: {
+        Args: { p_trip_id: string; p_new: unknown; p_confirm: string[] };
+        Returns: number;
+      };
       save_expense: {
         Args: { p_payload: Record<string, unknown> };
         Returns: string;

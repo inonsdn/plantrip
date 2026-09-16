@@ -124,6 +124,27 @@ npm run dev
 3. Leave the **service_role** key where it is. TripMate does not need it (see
    [Security notes](#security-notes)).
 
+### One action, one write
+
+A Next.js server action is not a transaction. Every Supabase call inside one is
+its own PostgREST request, so an action that writes twice can fail halfway: the
+first write stays, the caller is told the whole thing failed, and the two
+disagree from then on. Saving a place did three — bump the day's version, update
+the place, upsert the journey out of it — and a failure on the third left the
+version moved and the place saved while the queue rolled the change back off the
+screen. Each of those is a single database function now, and a test refuses any
+action that writes more than once (a genuinely independent write may follow a
+successful one; two writes that have to agree may not).
+
+### Schema drift is invisible until it is not
+
+A column added to a table after it was created can be missing from a database
+set up before that migration, and nothing notices: queries read with
+`select('*')`, so the row simply comes back without it. Only a write fails, with
+`PGRST204`. `20240101001800` re-applies every such change idempotently, so a
+database that is behind catches up; a test checks that every `add column` in
+every earlier migration appears there.
+
 ## Running migrations
 
 The migrations are plain SQL in `supabase/migrations/`, applied in filename
@@ -149,6 +170,7 @@ order:
 | `20240101001500_write_amplification.sql` | `on_auth_user_created` fires on insert only, and `reorder_itinerary_stops` writes each stop once instead of twice |
 | `20240101001600_join_returns_instead_of_raising.sql` | A dead invite token returns null instead of raising, so it neither aborts the transaction nor hides itself from `pg_stat_statements` |
 | `20240101001700_reorder_is_idempotent.sql` | Reordering to the order a day is already in returns the current version instead of refusing on a stale one — a resent request is a no-op, so a retrying client stops instead of looping |
+| `20240101001800_atomic_writes.sql` | Re-applies every schema change made after a table was created, idempotently, and replaces the five actions that wrote two or three times in a row with one function each |
 
 **Option A — Supabase CLI (recommended):**
 
