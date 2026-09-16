@@ -108,6 +108,15 @@ export async function updateItineraryDayAction(
 const addStopSchema = z.object({
   tripId: z.string().uuid(),
   dayId: z.string().uuid(),
+  /**
+   * The row's primary key, chosen by the client.
+   *
+   * A queued change survives the app being closed, so an add can be sent twice:
+   * once before the tab went away and once when it comes back, with no way to
+   * know whether the first one landed. Carrying the key makes the second one
+   * collide with the first and do nothing, instead of creating the place twice.
+   */
+  id: z.string().uuid(),
   name: z.string().trim().min(1, 'กรุณากรอกชื่อสถานที่').max(160),
   address: z.string().trim().max(400).nullable().optional(),
   latitude: z.number().finite().min(-90).max(90).nullable().optional(),
@@ -158,9 +167,9 @@ export async function addItineraryStopAction(
 
   const user = await getCurrentUser();
 
-  const { data, error } = await supabase
-    .from('itinerary_stops')
-    .insert({
+  const { error } = await supabase.from('itinerary_stops').upsert(
+    {
+      id: value.id,
       day_id: value.dayId,
       trip_id: value.tripId,
       position: (last?.position ?? -1) + 1,
@@ -173,13 +182,15 @@ export async function addItineraryStopAction(
       visit_duration_minutes: value.visitDurationMinutes ?? null,
       not_before_local_time: value.notBeforeLocalTime ?? null,
       created_by: user?.id ?? null,
-    })
-    .select('id')
-    .single();
+    },
+    // A replay of a change that already landed is not an error and must not
+    // overwrite whatever has been edited since: it simply does nothing.
+    { onConflict: 'id', ignoreDuplicates: true },
+  );
 
-  if (error || !data) return fail(friendlyError(error, 'เพิ่มสถานที่ไม่สำเร็จ'));
+  if (error) return fail(friendlyError(error, 'เพิ่มสถานที่ไม่สำเร็จ'));
   revalidateTrip(value.tripId);
-  return ok({ stopId: data.id, version });
+  return ok({ stopId: value.id, version });
 }
 
 /**

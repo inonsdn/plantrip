@@ -7,6 +7,7 @@ const addStop = readFileSync('src/components/itinerary/add-stop.tsx', 'utf8');
 const stopDialog = readFileSync('src/components/itinerary/stop-dialog.tsx', 'utf8');
 const dayDialog = readFileSync('src/components/itinerary/day-dialog.tsx', 'utf8');
 const queue = readFileSync('src/components/itinerary/use-itinerary-queue.ts', 'utf8');
+const header = readFileSync('src/components/trip/trip-header.tsx', 'utf8');
 
 /**
  * The sheet's focus effect restores focus on cleanup. `onClose` is an inline
@@ -37,19 +38,20 @@ describe('every itinerary mutation goes through the queue', () => {
     expect(planner).not.toContain('startTransition');
   });
 
-  it('each mutation enqueues instead of awaiting', () => {
-    for (const mutation of [
-      'จัดลำดับสถานที่',
-      'เพิ่มสถานที่',
-      'บันทึกวัน',
-      'บันทึกสถานที่',
-      'ลบสถานที่',
-      'ย้ายสถานที่',
+  it('each mutation submits an operation instead of awaiting', () => {
+    for (const kind of [
+      'reorder',
+      'addStop',
+      'saveStop',
+      'saveDay',
+      'deleteStop',
+      'restoreStop',
+      'moveStop',
     ]) {
-      expect(planner).toContain(`label: '${mutation}'`);
+      expect(planner).toContain(`kind: '${kind}'`);
     }
-    // One enqueue per label above, plus the "เลิกทำ" restore.
-    expect(planner.match(/enqueue\(\{/g) ?? []).toHaveLength(7);
+    // One submit per kind above — every change the planner can make.
+    expect(planner.match(/submit\(\{/g) ?? []).toHaveLength(7);
   });
 
   it('no itinerary field disables itself while a save is in flight', () => {
@@ -97,6 +99,30 @@ describe('the queue never invents a version, and never retries forever', () => {
     const halted = queue.slice(queue.indexOf('if (halted) {'));
     const body = halted.slice(0, halted.indexOf('return;'));
     expect(body).toContain('showToast');
+  });
+
+  it('settles each change on its own instead of dropping the batch', () => {
+    // A refusal used to clear the whole queue. Each change carries an id now,
+    // so the one that failed leaves and the ones behind it carry on.
+    expect(queue).toContain('pending.current.filter((entry) => entry.id !== change.id)');
+    expect(queue).toContain('continue;');
+  });
+
+  it('writes the unsent queue down so a closed app does not lose it', () => {
+    expect(queue).toContain('saveQueue(');
+    expect(queue).toContain('loadQueue(');
+  });
+
+  it('never checks a replayed change against a remembered version', () => {
+    expect(queue).toContain('change.resumed');
+  });
+
+  it('reports what is in flight without touching the list', () => {
+    expect(queue).toContain('pendingCount');
+    expect(planner).toContain('reportPendingChanges');
+    // The spinner belongs on the header, which is always on screen.
+    expect(header).toContain('pendingChanges');
+    expect(header).toContain('animate-spin');
   });
 
   it('keeps the version the server reported for the whole session', () => {

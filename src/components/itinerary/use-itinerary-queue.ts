@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
-import type { ActionResult } from '@/lib/actions/result';
+import {
+  applyOperation,
+  checkedAgainstDay,
+  describeOperation,
+  versionsInvalidatedBy,
+  type ItineraryOperation,
+  type QueuedChange,
+} from '@/lib/itinerary/operations';
 import {
   expectedVersion,
   noteFailure,
@@ -11,60 +18,50 @@ import {
   shouldStop,
   type KnownVersions,
 } from '@/lib/itinerary/queue-policy';
+import { loadQueue, saveQueue } from '@/lib/itinerary/queue-storage';
 import type { ItineraryDayView } from '@/lib/itinerary/types';
+import { runOperation } from './run-operation';
 
-export interface ItineraryTask {
-  /** Named in the toast when this task is the one the server refuses. */
-  label: string;
-  /** The day whose version this task is checked against, if any. */
-  dayId: string | null;
-  /**
-   * Days this task changes the version of without reporting the new number.
-   * The next task touching one of them sends no expected version rather than
-   * an invented one.
-   */
-  invalidates?: readonly string[];
-  /** What the change looks like before the server has been asked. */
-  apply: (days: readonly ItineraryDayView[]) => ItineraryDayView[];
-  /**
-   * Runs the change. The result carries the day's new `version` whenever the
-   * action bumped exactly one day, which is what the next task is checked
-   * against.
-   */
-  run: (
-    expectedVersion: number | null,
-  ) => Promise<ActionResult<{ version?: number | null } | undefined>>;
+function newId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  // Only reached on a browser without randomUUID; uniqueness within one tab is
+  // all this needs, since it never becomes a database key on that path.
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 /**
  * Optimistic itinerary edits, applied in order, one request at a time.
  *
- * The change appears immediately and stays on screen until the server either
- * confirms it — its own revalidation brings the real data back, with no extra
- * round trip — or refuses, at which point the whole batch is dropped, the list
- * snaps back to what the server actually holds, and a toast says what failed.
+ * Each change carries an id for its whole life, so the queue settles them one
+ * by one: the one that succeeded leaves the queue, the one that was refused is
+ * rolled back on its own and named in a toast, and everything else keeps going.
+ * A batch is never thrown away wholesale any more.
+ *
+ * The queue is written to browser storage while anything is unsent, so closing
+ * the app mid-save does not lose the change: it is picked up and pushed when
+ * the trip is opened again. Every operation is idempotent, which is what makes
+ * replaying a change that may already have landed safe.
  *
  * Requests are strictly serial. They all bump the same day's version, so
- * sending two at once would make the second one's expected version stale and
- * the server would reject an edit that was never in conflict with anything.
+ * sending two at once would make the second one's expected version stale.
  */
-export function useItineraryQueue(serverDays: ItineraryDayView[]) {
+export function useItineraryQueue(tripId: string, serverDays: ItineraryDayView[]) {
   const router = useRouter();
   const { showToast } = useToast();
 
-  // Tasks still to run, and tasks the server has accepted but whose data has
+  // Changes still to send, and changes the server has taken but whose data has
   // not come back yet. Both stay on screen; together they are the overlay.
-  const [queued, setQueued] = useState<ItineraryTask[]>([]);
-  const [accepted, setAccepted] = useState<ItineraryTask[]>([]);
+  const [queued, setQueued] = useState<QueuedChange[]>([]);
+  const [accepted, setAccepted] = useState<QueuedChange[]>([]);
+  const [halted, setHalted] = useState(false);
 
-  const pending = useRef<ItineraryTask[]>([]);
+  const pending = useRef<QueuedChange[]>([]);
   const running = useRef(false);
   const failures = useRef<number[]>([]);
   // Lives as long as this planner does, not as long as one batch. The server's
   // answer has to survive the queue going idle, or the next edit falls back to
   // the page — which is a version behind until its revalidation lands.
   const known = useRef<KnownVersions>(new Map());
-  const [halted, setHalted] = useState(false);
   const latest = useRef({ serverDays, router, showToast });
 
   useEffect(() => {
@@ -72,8 +69,6 @@ export function useItineraryQueue(serverDays: ItineraryDayView[]) {
   });
 
   // Any change the server sends supersedes what we were drawing on top of it.
-  // Every itinerary mutation either bumps a day's version or adds/removes a
-  // stop, so this signature always moves when one of ours lands.
   const signature = useMemo(
     () =>
       serverDays
@@ -87,8 +82,13 @@ export function useItineraryQueue(serverDays: ItineraryDayView[]) {
     setAccepted([]);
   }
 
-  // The retry offered on failure re-enters the queue, which is defined below.
-  const enqueueRef = useRef<(task: ItineraryTask) => void>(() => {});
+  /** Keeps the written-down queue in step with the one in memory. */
+  const publish = useCallback(() => {
+    setQueued([...pending.current]);
+    saveQueue(tripId, pending.current);
+  }, [tripId]);
+
+  const enqueueRef = useRef<(change: QueuedChange) => void>(() => {});
 
   const drain = useCallback(async () => {
     if (running.current) return;
@@ -96,102 +96,139 @@ export function useItineraryQueue(serverDays: ItineraryDayView[]) {
 
     try {
       while (pending.current.length > 0) {
-        const task = pending.current[0];
+        const change = pending.current[0];
+        const label = describeOperation(change.operation);
+        const dayId = checkedAgainstDay(change.operation);
 
-        const expected = expectedVersion(
-          task.dayId,
-          known.current,
-          (dayId) => latest.current.serverDays.find((day) => day.id === dayId)?.version ?? null,
-        );
+        // A replayed change cannot be checked against a version: whatever we
+        // remembered before the app closed says nothing about now.
+        const expected = change.resumed
+          ? null
+          : expectedVersion(
+              dayId,
+              known.current,
+              (id) => latest.current.serverDays.find((day) => day.id === id)?.version ?? null,
+            );
 
-        const result = await task.run(expected);
+        const result = await runOperation(change.tripId, change.operation, expected);
+
+        // Settled either way: this change leaves the queue on its own, and the
+        // ones behind it are untouched.
+        pending.current = pending.current.filter((entry) => entry.id !== change.id);
 
         if (!result.ok) {
-          // Everything queued behind this was built on a state that never
-          // happened, so none of it can be sent.
-          pending.current = [];
-          setQueued([]);
-          setAccepted([]);
-          // Out of step with the server: forget what we thought we knew and
-          // start again from whatever the refresh below brings back.
-          known.current = new Map();
+          // Rolling back is simply not drawing this one any more. Nothing else
+          // on screen moves, and nothing takes focus — a refused save must not
+          // interrupt whatever is being typed next.
+          publish();
 
           failures.current = noteFailure(failures.current, Date.now());
           const givingUp = shouldStop(failures.current);
-          if (givingUp) setHalted(true);
+          if (givingUp) {
+            setHalted(true);
+            pending.current = [];
+            publish();
+          }
 
           latest.current.showToast({
             message: givingUp
-              ? `${task.label}ไม่สำเร็จซ้ำหลายครั้ง · หยุดบันทึกไว้ก่อน กรุณาโหลดหน้านี้ใหม่`
-              : `${task.label}ไม่สำเร็จ · ${result.error}`,
+              ? `${label}ไม่สำเร็จซ้ำหลายครั้ง · หยุดบันทึกไว้ก่อน กรุณาโหลดหน้านี้ใหม่`
+              : `${label}ไม่สำเร็จ · ${result.error}`,
             tone: 'error',
-            // Retrying is offered only while retrying can still plausibly work.
-            // The task carries everything it needs, so it runs again against
-            // whatever the refresh below brings back.
             action: givingUp
               ? { label: 'โหลดใหม่', onClick: () => window.location.reload() }
-              : { label: 'ลองใหม่', onClick: () => enqueueRef.current(task) },
+              : {
+                  label: 'ลองใหม่',
+                  onClick: () => enqueueRef.current({ ...change, id: newId(), resumed: true }),
+                },
           });
-          // The server did not change, so nothing revalidated: ask for the
-          // truth explicitly before drawing it again.
+          // Out of step with the server: forget what we thought we knew and
+          // start again from whatever the refresh brings back.
+          known.current = new Map();
           latest.current.router.refresh();
-          return;
+          continue;
         }
 
         // A run that landed clears the streak: this tab and the server agree.
         failures.current = [];
+        recordVersion(
+          known.current,
+          dayId,
+          result.data?.version,
+          versionsInvalidatedBy(change.operation),
+        );
 
-        recordVersion(known.current, task.dayId, result.data?.version, task.invalidates);
-
-        pending.current = pending.current.slice(1);
-        setQueued([...pending.current]);
-        setAccepted((current) => [...current, task]);
+        publish();
+        setAccepted((current) => [...current, change]);
       }
     } finally {
       running.current = false;
     }
-  }, []);
+  }, [publish]);
 
   const enqueue = useCallback(
-    (task: ItineraryTask) => {
+    (change: QueuedChange) => {
       // Once the queue has given up, nothing else is sent until the page is
-      // reloaded. This is the backstop: whatever starts a loop, it stops here.
-      //
-      // It must never be quiet about it. Dropping the task silently is what a
-      // save that "just does not happen" looks like from the outside: the
-      // dialog closes, the change disappears, and nothing says why.
+      // reloaded. It must never be quiet about it: dropping the change in
+      // silence is what a save that "just does not happen" looks like.
       if (halted) {
         latest.current.showToast({
-          message: `${task.label}ไม่ถูกบันทึก · หยุดบันทึกไว้เพราะเซิร์ฟเวอร์ปฏิเสธซ้ำหลายครั้ง กรุณาโหลดหน้านี้ใหม่`,
+          message: `${describeOperation(change.operation)}ไม่ถูกบันทึก · หยุดบันทึกไว้เพราะเซิร์ฟเวอร์ปฏิเสธซ้ำหลายครั้ง กรุณาโหลดหน้านี้ใหม่`,
           tone: 'error',
           action: { label: 'โหลดใหม่', onClick: () => window.location.reload() },
         });
         return;
       }
-      pending.current = [...pending.current, task];
-      setQueued([...pending.current]);
+      pending.current = [...pending.current, change];
+      publish();
       void drain();
     },
-    [drain, halted],
+    [drain, halted, publish],
   );
 
   useEffect(() => {
     enqueueRef.current = enqueue;
   }, [enqueue]);
 
+  /** Starts a change from an operation, giving it the id it keeps for life. */
+  const submit = useCallback(
+    (operation: ItineraryOperation) => {
+      enqueueRef.current({ id: newId(), tripId, operation, queuedAt: Date.now() });
+    },
+    [tripId],
+  );
+
+  // Anything left unsent when the app was closed is picked up here, once.
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (resumed.current) return;
+    resumed.current = true;
+
+    const waiting = loadQueue(tripId);
+    if (waiting.length === 0) return;
+
+    pending.current = [...waiting, ...pending.current];
+    setQueued([...pending.current]);
+    showToast({
+      message: `กำลังบันทึกการแก้ไข ${waiting.length} รายการที่ค้างไว้`,
+      tone: 'info',
+    });
+    void drain();
+  }, [tripId, drain, showToast]);
+
   const days = useMemo(() => {
     if (accepted.length === 0 && queued.length === 0) return serverDays;
     let next: readonly ItineraryDayView[] = serverDays;
-    for (const task of [...accepted, ...queued]) next = task.apply(next);
+    for (const change of [...accepted, ...queued]) next = applyOperation(next, change.operation);
     return [...next];
   }, [serverDays, accepted, queued]);
 
   return {
     /** The server's days with every unconfirmed change of ours drawn on top. */
     days,
-    enqueue,
-    /** True while anything of ours is still in flight. */
-    saving: queued.length > 0,
+    submit,
+    /** How many changes are still on their way to the server. */
+    pendingCount: queued.length,
     /** True once the queue has stopped sending; only a reload clears it. */
     halted,
   };

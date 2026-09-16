@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarDays, MapPin, MoonStar, Pencil, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/states';
@@ -9,14 +9,7 @@ import { Sheet } from '@/components/ui/sheet';
 import { useTripUi } from '@/components/trip/trip-shell';
 import { formatDateWithWeekday } from '@/lib/format';
 import { resolveLegs, type StoredLegPreference } from '@/lib/itinerary/legs';
-import {
-  insertStop,
-  moveStopToDay,
-  removeStop,
-  reorderStops,
-  updateDay,
-  updateStop,
-} from '@/lib/itinerary/optimistic';
+import type { ItineraryStopView } from '@/lib/itinerary/types';
 import {
   computeDaySchedule,
   formatClock,
@@ -29,15 +22,6 @@ import {
 } from '@/lib/itinerary/schedule';
 import type { RouteAlternative } from '@/lib/itinerary/providers/types';
 import type { ItineraryDayView } from '@/lib/itinerary/types';
-import {
-  addItineraryStopAction,
-  deleteItineraryStopAction,
-  moveItineraryStopAction,
-  reorderItineraryStopsAction,
-  restoreItineraryStopAction,
-  saveItineraryStopAction,
-  updateItineraryDayAction,
-} from '@/lib/actions/itinerary';
 import { AddStopForm, type NewStopInput } from './add-stop';
 import { DayDialog, timeZoneLabel, type DayDraft } from './day-dialog';
 import { StopCard } from './stop-card';
@@ -57,11 +41,18 @@ export function ItineraryPlanner({
   routingConfigured: boolean;
 }) {
   const { showToast } = useToast();
-  const { openExpense } = useTripUi();
+  const { openExpense, reportPendingChanges } = useTripUi();
 
   // List edits land on screen at once and are reconciled in the background;
   // the dialogs below still wait for their own confirmation.
-  const { days, enqueue, halted } = useItineraryQueue(serverDays);
+  const { days, submit, pendingCount, halted } = useItineraryQueue(tripId, serverDays);
+
+  // The header shows the spinner: it is always on screen, and putting it there
+  // keeps every control in the list untouched while a save is in flight.
+  useEffect(() => {
+    reportPendingChanges(pendingCount);
+    return () => reportPendingChanges(0);
+  }, [pendingCount, reportPendingChanges]);
 
   const [selectedDayId, setSelectedDayId] = useState<string | null>(days[0]?.id ?? null);
   const [addOpen, setAddOpen] = useState(false);
@@ -237,104 +228,57 @@ export function ItineraryPlanner({
   const reorder = useCallback(
     (stopIds: string[]) => {
       if (!day) return;
-      const dayId = day.id;
-      enqueue({
-        label: 'จัดลำดับสถานที่',
-        dayId,
-        apply: (current) => reorderStops(current, dayId, stopIds),
-        run: (expectedVersion) =>
-          reorderItineraryStopsAction({
-            tripId,
-            dayId,
-            stopIds,
-            expectedVersion: expectedVersion ?? undefined,
-          }),
-      });
+      submit({ kind: 'reorder', dayId: day.id, stopIds });
     },
-    [day, enqueue, tripId],
+    [day, submit],
   );
 
   function addStop(input: NewStopInput) {
     if (!day) return;
-    const dayId = day.id;
-    // A placeholder id only this optimistic view ever sees; the real row
-    // replaces it when the server answers.
-    const temporaryId = `optimistic:${Date.now()}:${Math.random().toString(36).slice(2)}`;
     setAddOpen(false);
-    enqueue({
-      label: 'เพิ่มสถานที่',
-      dayId,
-      apply: (current) =>
-        insertStop(current, dayId, {
-          id: temporaryId,
-          dayId,
-          position: Number.MAX_SAFE_INTEGER,
-          placeProvider: input.placeProvider,
-          placeId: input.placeId,
-          name: input.name,
-          address: input.address,
-          latitude: input.latitude,
-          longitude: input.longitude,
-          visitDurationMinutes: input.visitDurationMinutes,
-          notBeforeLocalTime: input.notBeforeLocalTime,
-          enabled: true,
-          notes: null,
-        }),
-      run: (expectedVersion) =>
-        addItineraryStopAction({
-          tripId,
-          dayId,
-          expectedVersion: expectedVersion ?? undefined,
-          ...input,
-        }),
-    });
+    // The id is chosen here and travels with the change: it is what the list
+    // draws now, what the database stores, and what makes a replay of this add
+    // collide with itself rather than create the place twice.
+    const stop: ItineraryStopView = {
+      id: crypto.randomUUID(),
+      dayId: day.id,
+      position: Number.MAX_SAFE_INTEGER,
+      placeProvider: input.placeProvider,
+      placeId: input.placeId,
+      name: input.name,
+      address: input.address,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      visitDurationMinutes: input.visitDurationMinutes,
+      notBeforeLocalTime: input.notBeforeLocalTime,
+      enabled: true,
+      notes: null,
+    };
+    submit({ kind: 'addStop', dayId: day.id, stop });
   }
 
   function saveDay(draft: DayDraft) {
     if (!day) return;
-    const dayId = day.id;
     setDayOpen(false);
-    enqueue({
-      label: 'บันทึกวัน',
-      dayId,
-      apply: (current) => updateDay(current, dayId, draft),
-      run: (expectedVersion) =>
-        updateItineraryDayAction({
-          tripId,
-          dayId,
-          startLocalTime: draft.startLocalTime,
-          timeZone: draft.timeZone,
-          defaultTransportMode: draft.defaultTransportMode,
-          expectedVersion: expectedVersion ?? undefined,
-        }),
-    });
+    submit({ kind: 'saveDay', dayId: day.id, day: draft });
   }
 
   function saveStop(stopId: string, stopDraft: StopDraft, legDraft: LegDraft | null) {
     if (!day) return;
-    const dayId = day.id;
-    const leg = legDraft
-      ? {
-          destinationStopId: legDraft.destinationStopId,
-          transportMode: legDraft.transportMode,
-          manualDurationMinutes: legDraft.manualDurationMinutes,
-          notes: legDraft.notes,
-        }
-      : null;
-
     setEditingStopId(null);
-    enqueue({
-      label: 'บันทึกสถานที่',
-      dayId,
-      apply: (current) => updateStop(current, stopId, stopDraft, leg),
-      run: (expectedVersion) =>
-        saveItineraryStopAction({
-          tripId,
-          stopId,
-          expectedVersion: expectedVersion ?? undefined,
-          stop: stopDraft,
-          leg,
-        }),
+    submit({
+      kind: 'saveStop',
+      dayId: day.id,
+      stopId,
+      stop: stopDraft,
+      leg: legDraft
+        ? {
+            destinationStopId: legDraft.destinationStopId,
+            transportMode: legDraft.transportMode,
+            manualDurationMinutes: legDraft.manualDurationMinutes,
+            notes: legDraft.notes,
+          }
+        : null,
     });
   }
 
@@ -343,12 +287,7 @@ export function ItineraryPlanner({
     const dayId = day?.id ?? null;
     setEditingStopId(null);
 
-    enqueue({
-      label: 'ลบสถานที่',
-      dayId: null,
-      apply: (current) => removeStop(current, stopId),
-      run: () => deleteItineraryStopAction(tripId, stopId),
-    });
+    submit({ kind: 'deleteStop', stopId });
 
     showToast({
       message: 'ลบสถานที่แล้ว',
@@ -357,14 +296,9 @@ export function ItineraryPlanner({
         label: 'เลิกทำ',
         onClick: () => {
           if (!removed || !dayId) return;
-          enqueue({
-            label: 'กู้คืนสถานที่',
-            dayId: null,
-            // The row is still in the database, soft deleted, so putting it
-            // back on screen is honest while the restore is in flight.
-            apply: (current) => insertStop(current, dayId, removed),
-            run: () => restoreItineraryStopAction(tripId, stopId),
-          });
+          // The row is still in the database, soft deleted, so putting it back
+          // on screen is honest while the restore is in flight.
+          submit({ kind: 'restoreStop', dayId, stop: removed });
         },
       },
     });
@@ -598,16 +532,7 @@ export function ItineraryPlanner({
           onMoveToDay={(targetDayId) => {
             const stopId = editingStop.id;
             setEditingStopId(null);
-            enqueue({
-              label: 'ย้ายสถานที่',
-              // move_itinerary_stop bumps both the day it left and the day it
-              // joins, and reports neither, so the next task asks the server
-              // rather than assuming.
-              invalidates: [day.id, targetDayId],
-              dayId: null,
-              apply: (current) => moveStopToDay(current, stopId, targetDayId),
-              run: () => moveItineraryStopAction(tripId, stopId, targetDayId),
-            });
+            submit({ kind: 'moveStop', stopId, fromDayId: day.id, toDayId: targetDayId });
             showToast({ message: 'ย้ายสถานที่แล้ว', tone: 'success' });
           }}
           onRecordExpense={(legDraft) =>

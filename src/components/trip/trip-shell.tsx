@@ -14,6 +14,14 @@ interface TripUiValue {
   context: TripContext;
   openExpense: (expense?: ExpenseView | null, prefill?: ExpensePrefill) => void;
   openShare: () => void;
+  /** Changes still on their way to the server, from whichever tab owns them. */
+  pendingChanges: number;
+  /**
+   * Published by whatever is doing the saving — today the itinerary planner.
+   * The header is the one place on screen that is always visible, so that is
+   * where "still saving" belongs.
+   */
+  reportPendingChanges: (count: number) => void;
 }
 
 const TripUiContext = createContext<TripUiValue | null>(null);
@@ -67,9 +75,12 @@ export function TripShell({
 
   const openShare = useCallback(() => setShareOpen(true), []);
 
+  const [pendingChanges, setPendingChanges] = useState(0);
+  const reportPendingChanges = useCallback((count: number) => setPendingChanges(count), []);
+
   const value = useMemo<TripUiValue>(
-    () => ({ context, openExpense, openShare }),
-    [context, openExpense, openShare],
+    () => ({ context, openExpense, openShare, pendingChanges, reportPendingChanges }),
+    [context, openExpense, openShare, pendingChanges, reportPendingChanges],
   );
 
   const showExpenseButton = showsAddExpenseButton(pathname, context.trip.id);
