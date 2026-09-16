@@ -148,6 +148,7 @@ order:
 | `20240101001400_rls_performance.sql` | Rewrites every policy to compare against a set built once per query instead of calling a `SECURITY DEFINER` helper per row, and adds the `trip_id` indexes the itinerary queries were missing |
 | `20240101001500_write_amplification.sql` | `on_auth_user_created` fires on insert only, and `reorder_itinerary_stops` writes each stop once instead of twice |
 | `20240101001600_join_returns_instead_of_raising.sql` | A dead invite token returns null instead of raising, so it neither aborts the transaction nor hides itself from `pg_stat_statements` |
+| `20240101001700_reorder_is_idempotent.sql` | Reordering to the order a day is already in returns the current version instead of refusing on a stale one — a resent request is a no-op, so a retrying client stops instead of looping |
 
 **Option A — Supabase CLI (recommended):**
 
