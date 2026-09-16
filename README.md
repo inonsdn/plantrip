@@ -171,6 +171,7 @@ order:
 | `20240101001600_join_returns_instead_of_raising.sql` | A dead invite token returns null instead of raising, so it neither aborts the transaction nor hides itself from `pg_stat_statements` |
 | `20240101001700_reorder_is_idempotent.sql` | Reordering to the order a day is already in returns the current version instead of refusing on a stale one — a resent request is a no-op, so a retrying client stops instead of looping |
 | `20240101001800_atomic_writes.sql` | Re-applies every schema change made after a table was created, idempotently, and replaces the five actions that wrote two or three times in a row with one function each |
+| `20240101001900_close_rpc_surface.sql` | Revokes `EXECUTE` on the trigger functions and the row level security helpers, which PostgREST was publishing at `/rest/v1/rpc/…`, and pins the last two mutable `search_path`s |
 
 **Option A — Supabase CLI (recommended):**
 
