@@ -18,7 +18,12 @@ import {
   shouldStop,
   type KnownVersions,
 } from '@/lib/itinerary/queue-policy';
-import { loadQueue, saveQueue } from '@/lib/itinerary/queue-storage';
+import {
+  loadQueue,
+  loadVersions,
+  saveQueue,
+  saveVersions,
+} from '@/lib/itinerary/queue-storage';
 import type { ItineraryDayView } from '@/lib/itinerary/types';
 import { uuid } from '@/lib/uuid';
 import { runOperation } from './run-operation';
@@ -52,9 +57,11 @@ export function useItineraryQueue(tripId: string, serverDays: ItineraryDayView[]
   const pending = useRef<QueuedChange[]>([]);
   const running = useRef(false);
   const failures = useRef<number[]>([]);
-  // Lives as long as this planner does, not as long as one batch. The server's
-  // answer has to survive the queue going idle, or the next edit falls back to
-  // the page — which is a version behind until its revalidation lands.
+  // The server's answer has to outlive both the batch and this component. A ref
+  // alone was not enough: anything that remounts the planner resets it, and the
+  // next edit falls back to reading the version off a page that is one save
+  // behind — which the server refuses, so the trip could be edited exactly once
+  // and then never again until a reload.
   const known = useRef<KnownVersions>(new Map());
   const latest = useRef({ serverDays, router, showToast });
 
@@ -76,10 +83,11 @@ export function useItineraryQueue(tripId: string, serverDays: ItineraryDayView[]
     setAccepted([]);
   }
 
-  /** Keeps the written-down queue in step with the one in memory. */
+  /** Keeps what is written down in step with what is in memory. */
   const publish = useCallback(() => {
     setQueued([...pending.current]);
     saveQueue(tripId, pending.current);
+    saveVersions(tripId, known.current);
   }, [tripId]);
 
   const enqueueRef = useRef<(change: QueuedChange) => void>(() => {});
@@ -200,11 +208,14 @@ export function useItineraryQueue(tripId: string, serverDays: ItineraryDayView[]
     [tripId],
   );
 
-  // Anything left unsent when the app was closed is picked up here, once.
+  // Anything left unsent when the app was closed is picked up here, once, and
+  // so is everything the server had told us before this component existed.
   const resumed = useRef(false);
   useEffect(() => {
     if (resumed.current) return;
     resumed.current = true;
+
+    for (const [dayId, version] of loadVersions(tripId)) known.current.set(dayId, version);
 
     const waiting = loadQueue(tripId);
     if (waiting.length === 0) return;

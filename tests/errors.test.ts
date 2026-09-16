@@ -15,13 +15,31 @@ describe('friendlyError', () => {
     expect(shown).toBe('มีรายการนี้อยู่แล้ว');
   });
 
-  it('falls back to a generic message for an unmapped database error', () => {
+  it('names the code of an error it has no words for, and nothing else', () => {
     const shown = friendlyError({
       code: '22P02',
       message: 'invalid input syntax for type uuid: "nope"',
     });
+    // Still no raw database text: no column names, no constraint names, no
+    // values. Only the code, which identifies the fault and nothing about the
+    // data — and without which a failure in production cannot be diagnosed.
     expect(shown).not.toContain('invalid input syntax');
-    expect(shown).toBe('เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง');
+    expect(shown).not.toContain('nope');
+    expect(shown).toBe('เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง (22P02)');
+  });
+
+  it('keeps the caller\'s own wording in front of the code', () => {
+    const shown = friendlyError({ code: 'PGRST204', message: "Column 'notes' not found" }, 'บันทึกการเดินทางไม่สำเร็จ');
+    expect(shown).toBe('บันทึกการเดินทางไม่สำเร็จ (PGRST204)');
+    expect(shown).not.toContain('notes');
+  });
+
+  it('never decorates a message we wrote ourselves', () => {
+    const shown = friendlyError(
+      { code: '40001', message: 'มีคนแก้ไขแผนวันนี้ไปแล้ว กรุณาโหลดใหม่แล้วลองอีกครั้ง' },
+      'บันทึกไม่สำเร็จ',
+    );
+    expect(shown).toBe('มีคนแก้ไขแผนวันนี้ไปแล้ว กรุณาโหลดใหม่แล้วลองอีกครั้ง');
   });
 
   it('keeps the Thai messages our own database functions raise', () => {

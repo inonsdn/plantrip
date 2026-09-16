@@ -10,6 +10,7 @@ import type { QueuedChange } from './operations';
  */
 
 const PREFIX = 'tripmate:itinerary-queue:';
+const VERSION_PREFIX = 'tripmate:itinerary-versions:';
 /** Older than this and the plan has almost certainly moved on without it. */
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /** A queue longer than this is a bug, not a backlog. */
@@ -59,5 +60,57 @@ export function saveQueue(tripId: string, changes: readonly QueuedChange[]): voi
     window.localStorage.setItem(key(tripId), JSON.stringify(changes.slice(-MAX_ENTRIES)));
   } catch {
     // Out of quota or storage denied: the queue still works for this session.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// known versions
+// ---------------------------------------------------------------------------
+
+/**
+ * The last version the server reported for each day.
+ *
+ * This is kept next to the queue for one reason: a ref only lives as long as
+ * the component holding it. Anything that remounts the planner — a revalidation
+ * that re-suspends its boundary, navigating away and back, a tab restored from
+ * the phone's memory — wipes it, and the next edit falls back to reading the
+ * version off a page that is one save behind. The server refuses it, and from
+ * the outside the app can be edited exactly once.
+ *
+ * It is a cache of what the server said, never a source of truth: the page's
+ * own version always wins when it is further ahead.
+ */
+export function loadVersions(tripId: string): Map<string, number> {
+  try {
+    const raw = window.localStorage.getItem(`${VERSION_PREFIX}${tripId}`);
+    if (!raw) return new Map();
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return new Map();
+
+    const versions = new Map<string, number>();
+    for (const [dayId, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+        versions.set(dayId, value);
+      }
+    }
+    return versions;
+  } catch {
+    return new Map();
+  }
+}
+
+export function saveVersions(tripId: string, versions: ReadonlyMap<string, number | null>): void {
+  try {
+    const plain: Record<string, number> = {};
+    for (const [dayId, version] of versions) {
+      if (typeof version === 'number') plain[dayId] = version;
+    }
+    if (Object.keys(plain).length === 0) {
+      window.localStorage.removeItem(`${VERSION_PREFIX}${tripId}`);
+      return;
+    }
+    window.localStorage.setItem(`${VERSION_PREFIX}${tripId}`, JSON.stringify(plain));
+  } catch {
+    // Storage denied: the queue still works for as long as this page lives.
   }
 }

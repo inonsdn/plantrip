@@ -29,16 +29,36 @@ function isOwnMessage(message: string): boolean {
 
 /**
  * Turns a Postgres/Supabase error into something a traveller can read.
- * Never surfaces raw database text such as a constraint name.
+ *
+ * Never surfaces raw database text such as a constraint name — but it does
+ * carry the SQLSTATE or PostgREST code of anything it has no words for, and
+ * logs the whole error where the server can see it.
+ *
+ * That code is the difference between "บันทึกไม่สำเร็จ", which says nothing and
+ * cost three rounds of guessing, and "บันทึกไม่สำเร็จ (PGRST204)", which names
+ * the problem outright. It is five characters, it identifies no data, and
+ * without it a failure in production is invisible.
  */
 export function friendlyError(error: unknown, fallback = 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง'): string {
   if (typeof error === 'object' && error !== null) {
-    const candidate = error as { message?: string; code?: string };
+    const candidate = error as { message?: string; code?: string; details?: string; hint?: string };
+
+    if (candidate.code && !DATABASE_MESSAGES[candidate.code]) {
+      // Whatever this is, nobody has taught us to explain it yet. Say so with
+      // the code attached, and put the rest in the server log.
+      console.error('[tripmate] unrecognised database error', {
+        code: candidate.code,
+        message: candidate.message,
+        details: candidate.details,
+        hint: candidate.hint,
+      });
+    }
+
     if (candidate.message && isOwnMessage(candidate.message)) return candidate.message;
     if (candidate.code && DATABASE_MESSAGES[candidate.code]) {
       return DATABASE_MESSAGES[candidate.code];
     }
-    if (candidate.code) return fallback;
+    if (candidate.code) return `${fallback} (${candidate.code})`;
     if (candidate.message) return candidate.message;
   }
   if (error instanceof Error && error.message) return error.message;
