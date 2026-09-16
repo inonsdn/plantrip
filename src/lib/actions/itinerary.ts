@@ -65,7 +65,9 @@ const updateDaySchema = z.object({
   expectedVersion: z.number().int().positive().optional(),
 });
 
-export async function updateItineraryDayAction(input: unknown): Promise<ActionResult> {
+export async function updateItineraryDayAction(
+  input: unknown,
+): Promise<ActionResult<{ version: number }>> {
   const parsed = updateDaySchema.safeParse(input);
   if (!parsed.success) return fail('ข้อมูลวันไม่ถูกต้อง', fieldErrors(parsed.error));
   const value = parsed.data;
@@ -74,7 +76,11 @@ export async function updateItineraryDayAction(input: unknown): Promise<ActionRe
   if (!context) return fail('ไม่พบทริปนี้ หรือคุณไม่มีสิทธิ์เข้าถึง');
 
   const supabase = await createSupabaseServerClient();
-  const { error: versionError } = await supabase.rpc('bump_itinerary_day', {
+  // The new version comes back so the caller never has to guess it. Guessing —
+  // counting your own bumps and adding them to whatever the last render showed
+  // — races the revalidation that carries those same bumps, and every wrong
+  // guess is a 40001 for an edit that conflicted with nothing.
+  const { data: version, error: versionError } = await supabase.rpc('bump_itinerary_day', {
     p_day_id: value.dayId,
     p_expected_version: value.expectedVersion ?? null,
   });
@@ -92,7 +98,7 @@ export async function updateItineraryDayAction(input: unknown): Promise<ActionRe
 
   if (error) return fail(friendlyError(error, 'บันทึกวันไม่สำเร็จ'));
   revalidateTrip(value.tripId);
-  return ok(undefined);
+  return ok({ version });
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +121,7 @@ const addStopSchema = z.object({
 
 export async function addItineraryStopAction(
   input: unknown,
-): Promise<ActionResult<{ stopId: string }>> {
+): Promise<ActionResult<{ stopId: string; version: number }>> {
   const parsed = addStopSchema.safeParse(input);
   if (!parsed.success) return fail('ข้อมูลสถานที่ไม่ถูกต้อง', fieldErrors(parsed.error));
   const value = parsed.data;
@@ -135,7 +141,7 @@ export async function addItineraryStopAction(
     .maybeSingle();
   if (!day) return fail('ไม่พบวันนี้ในแผนการเดินทาง');
 
-  const { error: versionError } = await supabase.rpc('bump_itinerary_day', {
+  const { data: version, error: versionError } = await supabase.rpc('bump_itinerary_day', {
     p_day_id: value.dayId,
     p_expected_version: value.expectedVersion ?? null,
   });
@@ -173,7 +179,7 @@ export async function addItineraryStopAction(
 
   if (error || !data) return fail(friendlyError(error, 'เพิ่มสถานที่ไม่สำเร็จ'));
   revalidateTrip(value.tripId);
-  return ok({ stopId: data.id });
+  return ok({ stopId: data.id, version });
 }
 
 /**
@@ -227,7 +233,9 @@ const reorderSchema = z.object({
 });
 
 /** Runs inside one transaction in the database. */
-export async function reorderItineraryStopsAction(input: unknown): Promise<ActionResult> {
+export async function reorderItineraryStopsAction(
+  input: unknown,
+): Promise<ActionResult<{ version: number }>> {
   const parsed = reorderSchema.safeParse(input);
   if (!parsed.success) return fail('ลำดับไม่ถูกต้อง', fieldErrors(parsed.error));
   const value = parsed.data;
@@ -236,7 +244,7 @@ export async function reorderItineraryStopsAction(input: unknown): Promise<Actio
   if (!context) return fail('ไม่พบทริปนี้ หรือคุณไม่มีสิทธิ์เข้าถึง');
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.rpc('reorder_itinerary_stops', {
+  const { data: version, error } = await supabase.rpc('reorder_itinerary_stops', {
     p_day_id: value.dayId,
     p_stop_ids: value.stopIds,
     p_expected_version: value.expectedVersion ?? null,
@@ -244,7 +252,7 @@ export async function reorderItineraryStopsAction(input: unknown): Promise<Actio
 
   if (error) return fail(friendlyError(error, 'จัดลำดับไม่สำเร็จ'));
   revalidateTrip(value.tripId);
-  return ok(undefined);
+  return ok({ version });
 }
 
 export async function moveItineraryStopAction(
@@ -304,7 +312,9 @@ const stopWithLegSchema = z.object({
  * The edit dialog collects both, so they travel as one request: two separate
  * actions would double the latency and could leave the pair half-saved.
  */
-export async function saveItineraryStopAction(input: unknown): Promise<ActionResult> {
+export async function saveItineraryStopAction(
+  input: unknown,
+): Promise<ActionResult<{ version: number }>> {
   const parsed = stopWithLegSchema.safeParse(input);
   if (!parsed.success) return fail('ข้อมูลสถานที่ไม่ถูกต้อง', fieldErrors(parsed.error));
   const value = parsed.data;
@@ -325,7 +335,7 @@ export async function saveItineraryStopAction(input: unknown): Promise<ActionRes
     .maybeSingle();
   if (!stop) return fail('ไม่พบสถานที่นี้');
 
-  const { error: versionError } = await supabase.rpc('bump_itinerary_day', {
+  const { data: version, error: versionError } = await supabase.rpc('bump_itinerary_day', {
     p_day_id: stop.day_id,
     p_expected_version: value.expectedVersion ?? null,
   });
@@ -362,5 +372,5 @@ export async function saveItineraryStopAction(input: unknown): Promise<ActionRes
   }
 
   revalidateTrip(value.tripId);
-  return ok(undefined);
+  return ok({ version });
 }

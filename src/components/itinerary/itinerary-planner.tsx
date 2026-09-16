@@ -239,7 +239,6 @@ export function ItineraryPlanner({
       const dayId = day.id;
       enqueue({
         label: 'จัดลำดับสถานที่',
-        bumps: [dayId],
         dayId,
         apply: (current) => reorderStops(current, dayId, stopIds),
         run: (expectedVersion) =>
@@ -263,7 +262,6 @@ export function ItineraryPlanner({
     setAddOpen(false);
     enqueue({
       label: 'เพิ่มสถานที่',
-      bumps: [dayId],
       dayId,
       apply: (current) =>
         insertStop(current, dayId, {
@@ -297,7 +295,6 @@ export function ItineraryPlanner({
     setDayOpen(false);
     enqueue({
       label: 'บันทึกวัน',
-      bumps: [dayId],
       dayId,
       apply: (current) => updateDay(current, dayId, draft),
       run: (expectedVersion) =>
@@ -327,7 +324,6 @@ export function ItineraryPlanner({
     setEditingStopId(null);
     enqueue({
       label: 'บันทึกสถานที่',
-      bumps: [dayId],
       dayId,
       apply: (current) => updateStop(current, stopId, stopDraft, leg),
       run: (expectedVersion) =>
@@ -348,7 +344,6 @@ export function ItineraryPlanner({
 
     enqueue({
       label: 'ลบสถานที่',
-      bumps: [],
       dayId: null,
       apply: (current) => removeStop(current, stopId),
       run: () => deleteItineraryStopAction(tripId, stopId),
@@ -363,7 +358,6 @@ export function ItineraryPlanner({
           if (!removed || !dayId) return;
           enqueue({
             label: 'กู้คืนสถานที่',
-            bumps: [],
             dayId: null,
             // The row is still in the database, soft deleted, so putting it
             // back on screen is honest while the restore is in flight.
@@ -588,8 +582,10 @@ export function ItineraryPlanner({
             setEditingStopId(null);
             enqueue({
               label: 'ย้ายสถานที่',
-              // move_itinerary_stop bumps the day it left and the day it joins.
-              bumps: [day.id, targetDayId],
+              // move_itinerary_stop bumps both the day it left and the day it
+              // joins, and reports neither, so the next task asks the server
+              // rather than assuming.
+              invalidates: [day.id, targetDayId],
               dayId: null,
               apply: (current) => moveStopToDay(current, stopId, targetDayId),
               run: () => moveItineraryStopAction(tripId, stopId, targetDayId),
