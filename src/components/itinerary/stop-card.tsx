@@ -1,7 +1,12 @@
 'use client';
 
-import { ChevronRight, Clock, GripVertical } from 'lucide-react';
-import { formatClock, formatDuration, type ScheduleStopResult } from '@/lib/itinerary/schedule';
+import { ChevronRight, Clock, GripVertical, TriangleAlert } from 'lucide-react';
+import {
+  SCHEDULE_WARNINGS,
+  formatClock,
+  formatDuration,
+  type ScheduleStopResult,
+} from '@/lib/itinerary/schedule';
 import type { ItineraryStopView } from '@/lib/itinerary/types';
 
 export interface StopCardProps {
@@ -9,8 +14,6 @@ export interface StopCardProps {
   /** 1-based order among enabled stops; null when the stop is excluded. */
   order: number | null;
   timing: ScheduleStopResult | undefined;
-  /** Why the time is not known yet, already phrased for the reader. */
-  blockedReason: string | null;
   onOpen: () => void;
   /** Pointer-driven reordering; see use-reorder.ts. */
   onGripPointerDown: (event: React.PointerEvent) => void;
@@ -26,20 +29,26 @@ export function StopCard({
   stop,
   order,
   timing,
-  blockedReason,
   onOpen,
   onGripPointerDown,
   registerElement,
   dragging,
 }: StopCardProps) {
-  const incomplete = timing?.incomplete ?? true;
+  const warning = timing?.warning ?? null;
+  // A time nobody could work out is simply blank. Only a time that runs
+  // backwards is worth interrupting anyone about, and then only quietly.
+  const border = dragging
+    ? 'border-brand shadow-lg shadow-ink/15 ring-2 ring-brand'
+    : warning
+      ? 'border-negative/40 bg-negative-soft/40'
+      : 'border-line';
 
   return (
     <li
       ref={registerElement}
-      className={`flex items-stretch overflow-hidden rounded-xl border bg-surface transition-shadow ${
-        dragging ? 'border-brand shadow-lg shadow-ink/15 ring-2 ring-brand' : 'border-line'
-      } ${stop.enabled ? '' : 'bg-canvas/60'}`}
+      className={`flex items-stretch overflow-hidden rounded-xl border bg-surface transition-shadow ${border} ${
+        stop.enabled ? '' : 'bg-canvas/60'
+      }`}
     >
       {/*
         The whole left rail is the drag handle — the number people already look
@@ -81,29 +90,31 @@ export function StopCard({
           </span>
           <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-ink-soft">
             {stop.enabled ? (
-              incomplete ? (
-                <span className="text-muted">{blockedReason ?? 'เวลายังคำนวณไม่ได้'}</span>
-              ) : (
-                <>
-                  <span>
-                    ถึง {formatClock(timing?.arrivalMinutes)} · ออก{' '}
-                    {formatClock(timing?.departureMinutes)}
-                  </span>
-                  {timing && timing.waitMinutes > 0 ? (
-                    <span className="text-accent">รอ {formatDuration(timing.waitMinutes)}</span>
-                  ) : null}
-                </>
-              )
+              <>
+                <span className="tabular">
+                  ถึง {formatClock(timing?.arrivalMinutes)} · ออก{' '}
+                  {formatClock(timing?.departureMinutes)}
+                </span>
+                {timing && timing.waitMinutes > 0 ? (
+                  <span className="text-accent">รอ {formatDuration(timing.waitMinutes)}</span>
+                ) : null}
+              </>
             ) : (
               <span className="font-medium text-muted">ไม่รวมในแผน</span>
             )}
-            <span className="inline-flex items-center gap-1">
-              <Clock aria-hidden className="size-3" />
-              {stop.visitDurationMinutes === null
-                ? 'ไม่ระบุเวลา'
-                : formatDuration(stop.visitDurationMinutes)}
-            </span>
+            {stop.visitDurationMinutes === null ? null : (
+              <span className="inline-flex items-center gap-1">
+                <Clock aria-hidden className="size-3" />
+                {formatDuration(stop.visitDurationMinutes)}
+              </span>
+            )}
           </span>
+          {warning ? (
+            <span className="mt-1 flex items-center gap-1.5 text-xs font-medium text-negative">
+              <TriangleAlert aria-hidden className="size-3.5 shrink-0" />
+              {SCHEDULE_WARNINGS[warning.reason]}
+            </span>
+          ) : null}
         </span>
         <ChevronRight aria-hidden className="size-4 shrink-0 text-muted" />
       </button>

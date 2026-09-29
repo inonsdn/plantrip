@@ -21,7 +21,8 @@ export function stop(id: string, name = id.toUpperCase(), position = 0): Itinera
     latitude: null,
     longitude: null,
     visitDurationMinutes: 30,
-    notBeforeLocalTime: null,
+    arrivalLocalTime: null,
+    departureLocalTime: null,
     enabled: true,
     notes: null,
   };

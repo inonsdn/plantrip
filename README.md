@@ -191,6 +191,7 @@ order:
 | `20240101001700_reorder_is_idempotent.sql` | Reordering to the order a day is already in returns the current version instead of refusing on a stale one — a resent request is a no-op, so a retrying client stops instead of looping |
 | `20240101001800_atomic_writes.sql` | Re-applies every schema change made after a table was created, idempotently, and replaces the five actions that wrote two or three times in a row with one function each |
 | `20240101001900_close_rpc_surface.sql` | Revokes `EXECUTE` on the trigger functions and the row level security helpers, which PostgREST was publishing at `/rest/v1/rpc/…`, and pins the last two mutable `search_path`s |
+| `20240101002000_stated_times.sql` | A stop carries its own `arrival_local_time` and `departure_local_time`; `not_before_local_time`'s values move across and the column is left for one release |
 
 **Option A — Supabase CLI (recommended):**
 
@@ -313,6 +314,20 @@ restart.
 `/trips/<id>/itinerary` ("แผนการเดินทาง") plans each day as an ordered list of
 places with the journeys between them.
 
+**A time is either written down or worked out, and never invented.** Each place
+carries its own optional "ถึงกี่โมง" and "ออกจากที่นี่กี่โมง". A time written down
+is taken as fact and owes nothing to what came before it, so a day can be filled
+in from the middle, or the end, or not at all; where nothing is written down the
+plan works the time out from the place before it, and where it cannot, the time
+is simply blank. A gap does not spread down the list and is not worth a sentence
+on every card — the plan used to answer a missing visit duration with a column of
+"ยังไม่ได้ระบุ…" and nothing to do about it.
+
+The one thing worth saying out loud is a clock that runs backwards: leaving
+before arriving, or arriving before leaving the place before. That marks the one
+card it is on with a soft red border and a line naming it. It can only ever come
+from a time somebody typed, because a worked-out time is built forwards.
+
 **Every change is data, with a name of its own.** A queued change is an
 `ItineraryOperation` — a plain object saying what to do — carrying a v4 UUID minted
 the moment the person acts, which it keeps for its whole life: in the queue, in the toast that names it, and, for an
@@ -410,12 +425,6 @@ geometry. That is deliberate: a plausible-looking straight line or a guessed
 duration would be indistinguishable from a real answer. A leg with no provider
 result and no manual duration is marked unknown, and every arrival after it is
 reported as unknown rather than silently assuming zero.
-
-An unknown time always says which answer it is waiting for. `computeDaySchedule`
-returns a `blockedBy` alongside every stop, leg and the day's totals, naming
-either the journey with no travel time or the place with no "อยู่ที่นี่นานเท่าไร",
-so the card reads "ยังไม่รู้เวลาเดินทางจาก «Furano station»" instead of a bare
-"ยังคำนวณไม่ได้". Enter a time under "ใช้เวลาเดินทาง" to complete the plan by hand.
 
 In this mode the planner makes **no outbound requests at all**: place search is
 hidden in favour of typing a name, and an unset travel time reads as

@@ -91,24 +91,29 @@ const reconciliation = readFileSync(
  * so a database that is behind catches up on the next deploy.
  */
 describe('every late schema change can be re-applied', () => {
-  const lateChanges = migrations
-    .filter((file) => !file.includes('20240101001800'))
-    .flatMap((file) => {
-      const source = readFileSync(file, 'utf8');
-      return [...source.matchAll(/add column\s+(?:if not exists\s+)?([a-z_]+)/g)].map(
-        (match) => match[1],
-      );
-    });
+  // A column added after its table was created has to be safe to re-apply, one
+  // way or the other: either its own migration says `if not exists`, or the
+  // reconciliation migration re-applies it. Anything else can be missing from a
+  // database set up earlier with nothing to notice.
+  const lateChanges = migrations.flatMap((file) => {
+    const source = readFileSync(file, 'utf8');
+    return [...source.matchAll(/add column(\s+if not exists)?\s+([a-z_]+)/g)].map((match) => ({
+      file,
+      column: match[2],
+      idempotent: Boolean(match[1]),
+    }));
+  });
 
   it('finds the columns that were added later', () => {
-    expect(lateChanges).toContain('notes');
+    expect(lateChanges.map((change) => change.column)).toContain('notes');
     expect(lateChanges.length).toBeGreaterThan(3);
   });
 
-  it.each([...new Set(lateChanges)])('%s is re-applied idempotently', (column) => {
-    expect(reconciliation).toMatch(
-      new RegExp(`add column if not exists ${column}\\b`),
+  it.each(lateChanges)('$column in $file can be re-applied', (change) => {
+    const reApplied = new RegExp(`add column if not exists ${change.column}\\b`).test(
+      reconciliation,
     );
+    expect(change.idempotent || reApplied).toBe(true);
   });
 
   it('re-applies the transport modes added later', () => {

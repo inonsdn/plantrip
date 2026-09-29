@@ -11,7 +11,10 @@ export interface ItineraryStopView {
   latitude: number | null;
   longitude: number | null;
   visitDurationMinutes: number | null;
-  notBeforeLocalTime: string | null;
+  /** "ถึงกี่โมง", written down by hand. */
+  arrivalLocalTime: string | null;
+  /** "ออกจากที่นี่กี่โมง", written down by hand. */
+  departureLocalTime: string | null;
   enabled: boolean;
   notes: string | null;
 }

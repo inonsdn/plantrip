@@ -21,7 +21,8 @@ function stop(id: string, dayId: string, position: number): ItineraryStopView {
     latitude: null,
     longitude: null,
     visitDurationMinutes: 30,
-    notBeforeLocalTime: null,
+    arrivalLocalTime: null,
+    departureLocalTime: null,
     enabled: true,
     notes: null,
   };
@@ -149,7 +150,8 @@ describe('updateStop', () => {
     name: 'A ใหม่',
     notes: 'โน้ต',
     visitDurationMinutes: 90,
-    notBeforeLocalTime: '10:00',
+    arrivalLocalTime: '10:00',
+    departureLocalTime: null,
     enabled: false,
   };
 

@@ -80,7 +80,8 @@ describe('map visibility is not a planning decision', () => {
       stops: stops.map((stop) => ({
         id: stop.id,
         visitMinutes: 30,
-        notBeforeMinutes: null,
+        arrivalMinutes: null,
+        departureMinutes: null,
         enabled: stop.enabled,
       })),
       travelByLegKey: Object.fromEntries(
