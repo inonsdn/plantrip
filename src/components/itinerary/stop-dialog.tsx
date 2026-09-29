@@ -8,6 +8,7 @@ import { Sheet } from '@/components/ui/sheet';
 import {
   TRANSPORT_MODES,
   TRANSPORT_MODE_LABELS,
+  SCHEDULE_WARNINGS,
   formatClock,
   formatDuration,
   type ScheduleStopResult,
@@ -21,7 +22,8 @@ export interface StopDraft {
   name: string;
   notes: string | null;
   visitDurationMinutes: number | null;
-  notBeforeLocalTime: string | null;
+  arrivalLocalTime: string | null;
+  departureLocalTime: string | null;
   enabled: boolean;
 }
 
@@ -45,7 +47,6 @@ export function StopDialog({
   stop,
   order,
   timing,
-  blockedReason,
   leg,
   otherDays,
   onClose,
@@ -58,8 +59,6 @@ export function StopDialog({
   stop: ItineraryStopView;
   order: number | null;
   timing: ScheduleStopResult | undefined;
-  /** Why the time is not known yet, already phrased for the reader. */
-  blockedReason: string | null;
   /** Absent for the last enabled place of the day: there is no onward journey. */
   leg: LegDraft | null;
   otherDays: Array<{ id: string; label: string }>;
@@ -73,7 +72,8 @@ export function StopDialog({
     name: stop.name,
     notes: stop.notes,
     visitDurationMinutes: stop.visitDurationMinutes,
-    notBeforeLocalTime: stop.notBeforeLocalTime?.slice(0, 5) ?? null,
+    arrivalLocalTime: stop.arrivalLocalTime?.slice(0, 5) ?? null,
+    departureLocalTime: stop.departureLocalTime?.slice(0, 5) ?? null,
     enabled: stop.enabled,
   }));
   const [legDraft, setLegDraft] = useState<LegDraft | null>(leg);
@@ -100,9 +100,7 @@ export function StopDialog({
 
   const arrivalText = !draft.enabled
     ? 'ไม่รวมในแผน'
-    : timing && !timing.incomplete
-      ? `ถึง ${formatClock(timing.arrivalMinutes)} · ออก ${formatClock(timing.departureMinutes)}`
-      : (blockedReason ?? 'ยังคำนวณไม่ได้');
+    : `ถึง ${formatClock(timing?.arrivalMinutes)} · ออก ${formatClock(timing?.departureMinutes)}`;
 
   return (
     <Sheet
@@ -136,21 +134,43 @@ export function StopDialog({
             />
           </Field>
 
-          <div className="rounded-lg border border-line bg-canvas px-3 py-2">
-            <p className="text-xs text-muted">เวลาที่คำนวณได้</p>
+          <div
+            className={`rounded-lg border px-3 py-2 ${
+              timing?.warning ? 'border-negative/40 bg-negative-soft' : 'border-line bg-canvas'
+            }`}
+          >
+            <p className="text-xs text-muted">เวลาในแผน</p>
             <p className="mt-0.5 text-sm font-medium text-ink">{arrivalText}</p>
+            {timing?.warning ? (
+              <p className="mt-1 text-xs font-medium text-negative">
+                {SCHEDULE_WARNINGS[timing.warning.reason]}
+              </p>
+            ) : null}
           </div>
 
           <Field
-            label="ไปถึงไม่ก่อนเวลา"
-            hint="ถ้าไปถึงก่อนเวลานี้ แผนจะนับเป็นเวลารอ เว้นว่างได้ถ้าไม่มีเวลาตายตัว"
+            label="ถึงกี่โมง"
+            hint="ใส่เองได้ ถ้าเว้นไว้ แผนจะคิดให้จากจุดก่อนหน้าเมื่อทำได้"
           >
             <TimeField
-              value={draft.notBeforeLocalTime}
+              value={draft.arrivalLocalTime}
               clearable
-              hourLabel="ชั่วโมงที่จะไปถึง"
-              minuteLabel="นาทีที่จะไปถึง"
-              onChange={(next) => setDraft((current) => ({ ...current, notBeforeLocalTime: next }))}
+              hourLabel="ชั่วโมงที่ถึง"
+              minuteLabel="นาทีที่ถึง"
+              onChange={(next) => setDraft((current) => ({ ...current, arrivalLocalTime: next }))}
+            />
+          </Field>
+
+          <Field
+            label="ออกจากที่นี่กี่โมง"
+            hint="ใส่เองได้ ถ้าเว้นไว้ แผนจะคิดจากเวลาถึงบวกเวลาที่อยู่"
+          >
+            <TimeField
+              value={draft.departureLocalTime}
+              clearable
+              hourLabel="ชั่วโมงที่ออก"
+              minuteLabel="นาทีที่ออก"
+              onChange={(next) => setDraft((current) => ({ ...current, departureLocalTime: next }))}
             />
           </Field>
 

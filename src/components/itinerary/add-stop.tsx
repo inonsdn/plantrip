@@ -16,7 +16,8 @@ export interface NewStopInput {
   placeProvider: string;
   placeId: string | null;
   visitDurationMinutes: number | null;
-  notBeforeLocalTime: string | null;
+  arrivalLocalTime: string | null;
+  departureLocalTime: string | null;
 }
 
 /**
@@ -63,7 +64,8 @@ export function AddStopForm({
       placeProvider: 'manual',
       placeId: null,
       visitDurationMinutes: duration,
-      notBeforeLocalTime: arriveAt,
+      arrivalLocalTime: arriveAt,
+      departureLocalTime: null,
     });
     // The fields are NOT cleared here. `onAdd` only starts the save, so wiping
     // them now would blank what the person typed while it is still in flight —
@@ -111,7 +113,8 @@ export function AddStopForm({
       placeProvider: place.placeProvider,
       placeId: place.placeId,
       visitDurationMinutes: duration,
-      notBeforeLocalTime: arriveAt,
+      arrivalLocalTime: arriveAt,
+      departureLocalTime: null,
     });
   }
 
@@ -183,7 +186,7 @@ export function AddStopForm({
           />
         </Field>
 
-        <Field label="เวลาที่จะไปถึง" hint="ไม่ใส่ก็ได้ — แผนจะคำนวณเวลาถึงให้จากลำดับและเวลาเดินทาง">
+        <Field label="ถึงกี่โมง" hint="ไม่ใส่ก็ได้ — ถ้าเว้นไว้ แผนจะคิดให้จากจุดก่อนหน้าเมื่อทำได้">
           <TimeField
             value={arriveAt}
             onChange={setArriveAt}

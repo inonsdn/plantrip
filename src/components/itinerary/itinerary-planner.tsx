@@ -19,7 +19,6 @@ import {
   parseLocalTime,
   splitClock,
   type LegTravel,
-  type ScheduleBlocker,
 } from '@/lib/itinerary/schedule';
 import type { RouteAlternative } from '@/lib/itinerary/providers/types';
 import type { ItineraryDayView } from '@/lib/itinerary/types';
@@ -108,7 +107,8 @@ export function ItineraryPlanner({
       stops.map((stop) => ({
         id: stop.id,
         visitMinutes: stop.visitDurationMinutes,
-        notBeforeMinutes: parseLocalTime(stop.notBeforeLocalTime),
+        arrivalMinutes: parseLocalTime(stop.arrivalLocalTime),
+        departureMinutes: parseLocalTime(stop.departureLocalTime),
         enabled: stop.enabled,
       })),
     [stops],
@@ -200,30 +200,6 @@ export function ItineraryPlanner({
   // mutations
   // ---------------------------------------------------------------------
 
-  /**
-   * "ยังคำนวณไม่ได้" names the answer it is waiting for.
-   *
-   * The schedule already knows which input stopped the clock; without this the
-   * card said only that it could not work the time out, which reads as a fault
-   * rather than as a question.
-   */
-  const explainBlocker = useCallback(
-    (blocker: ScheduleBlocker | null): string | null => {
-      if (!blocker) return null;
-      if (blocker.reason === 'visit') {
-        const name = stopById.get(blocker.stopId)?.name;
-        return name
-          ? `ยังไม่ได้ระบุว่าอยู่ที่ “${name}” นานเท่าไร`
-          : 'ยังไม่ได้ระบุว่าอยู่ที่จุดก่อนหน้านานเท่าไร';
-      }
-      const name = stopById.get(blocker.fromStopId)?.name;
-      return name
-        ? `ยังไม่รู้เวลาเดินทางจาก “${name}” — เปิดจุดนั้นแล้วกรอก “ใช้เวลาเดินทาง”`
-        : 'ยังไม่รู้เวลาเดินทางของช่วงก่อนหน้า';
-    },
-    [stopById],
-  );
-
   // Stable, so the drag's window listeners are not torn down and re-added on
   // every frame of the drag.
   const reorder = useCallback(
@@ -251,7 +227,8 @@ export function ItineraryPlanner({
       latitude: input.latitude,
       longitude: input.longitude,
       visitDurationMinutes: input.visitDurationMinutes,
-      notBeforeLocalTime: input.notBeforeLocalTime,
+      arrivalLocalTime: input.arrivalLocalTime,
+      departureLocalTime: input.departureLocalTime,
       enabled: true,
       notes: null,
     };
@@ -361,8 +338,6 @@ export function ItineraryPlanner({
       }
     : null;
 
-  const dayBlocker = explainBlocker(schedule.totals.blockedBy);
-
   const crossesMidnight =
     schedule.endMinutes !== null && splitClock(schedule.endMinutes).dayOffset > 0;
 
@@ -417,7 +392,7 @@ export function ItineraryPlanner({
                 : formatDuration(schedule.totals.elapsedMinutes)}
             </span>
             <span className="text-muted"> · เดินทาง</span>{' '}
-            {schedule.totals.complete ? formatDuration(schedule.totals.travelMinutes) : '—'}
+            {formatDuration(schedule.totals.travelMinutes)}
             <span className="text-muted"> · เที่ยว</span>{' '}
             {formatDuration(schedule.totals.visitMinutes)}
             {crossesMidnight ? (
@@ -449,11 +424,6 @@ export function ItineraryPlanner({
         </div>
       ) : null}
 
-      {dayBlocker ? (
-        <p className="rounded-lg border border-accent/30 bg-accent-soft px-3 py-2 text-xs leading-5 text-ink-soft">
-          {dayBlocker}
-        </p>
-      ) : null}
 
       {stops.length === 0 ? (
         <EmptyState
@@ -472,7 +442,6 @@ export function ItineraryPlanner({
                 stop={stop}
                 order={orderByStopId.get(stop.id) ?? null}
                 timing={stopTiming.get(stop.id)}
-                blockedReason={explainBlocker(stopTiming.get(stop.id)?.blockedBy ?? null)}
                 onOpen={() => setEditingStopId(stop.id)}
                 onGripPointerDown={(event) => drag.start(stop.id, event)}
                 registerElement={(element) => drag.register(stop.id, element)}
@@ -524,7 +493,6 @@ export function ItineraryPlanner({
           stop={editingStop}
           order={orderByStopId.get(editingStop.id) ?? null}
           timing={stopTiming.get(editingStop.id)}
-          blockedReason={explainBlocker(stopTiming.get(editingStop.id)?.blockedBy ?? null)}
           leg={editingLegDraft}
           otherDays={otherDays}
           onClose={() => setEditingStopId(null)}

@@ -45,8 +45,10 @@ export interface ScheduleStopInput {
   id: string;
   /** null when "อยู่ที่นี่นานเท่าไร" is left unanswered. */
   visitMinutes: number | null;
-  /** "ถึงไม่ก่อนเวลา", minutes since local midnight, or null. */
-  notBeforeMinutes: number | null;
+  /** "ถึงกี่โมง", written down by hand. Overrides anything worked out. */
+  arrivalMinutes: number | null;
+  /** "ออกจากที่นี่กี่โมง", written down by hand. */
+  departureMinutes: number | null;
   enabled: boolean;
 }
 
@@ -57,33 +59,31 @@ export interface ScheduleInput {
   travelByLegKey: Readonly<Record<string, LegTravel>>;
 }
 
+/** Whether a time was written down or worked out from the times around it. */
+export type TimeSource = 'stated' | 'derived';
+
 /**
- * The one missing input that stops the clock.
+ * A time that contradicts the order of the list.
  *
- * "ยังคำนวณไม่ได้" on its own is a dead end: the plan knows exactly which
- * answer it is waiting for, so it says so and the person can go and give it.
+ * Only ever raised by times somebody typed: a worked-out time cannot run
+ * backwards, because it is built forwards from the one before it.
  */
-export type ScheduleBlocker =
-  /** No travel time for the journey out of `fromStopId`. */
-  | { reason: 'travel'; fromStopId: string }
-  /** `stopId` has no "อยู่ที่นี่นานเท่าไร", so its departure is unknown. */
-  | { reason: 'visit'; stopId: string };
+export type ScheduleWarning =
+  /** Leaving before arriving. */
+  | { reason: 'departure_before_arrival' }
+  /** Arriving before leaving the place before this one. */
+  | { reason: 'arrival_before_previous_departure' };
 
 export interface ScheduleStopResult {
   stopId: string;
   arrivalMinutes: number | null;
   departureMinutes: number | null;
-  /** Idle time forced by "ถึงไม่ก่อนเวลา". */
+  arrivalSource: TimeSource | null;
+  departureSource: TimeSource | null;
+  /** Idle time between getting there and the arrival time that was written down. */
   waitMinutes: number;
   visitMinutes: number | null;
-  /** True when an upstream travel time is unknown, so this time cannot be known. */
-  incomplete: boolean;
-  /**
-   * The first missing input upstream of this stop, or null when nothing is
-   * missing. A stop can be incomplete and still have a known arrival — the
-   * blocker is then about its own departure.
-   */
-  blockedBy: ScheduleBlocker | null;
+  warning: ScheduleWarning | null;
 }
 
 export interface ScheduleLegResult {
@@ -95,8 +95,6 @@ export interface ScheduleLegResult {
   travelMinutes: number | null;
   source: TravelSource;
   transitWaitMinutes: number;
-  incomplete: boolean;
-  blockedBy: ScheduleBlocker | null;
 }
 
 export interface DaySchedule {
@@ -107,16 +105,15 @@ export interface DaySchedule {
   totals: {
     travelMinutes: number;
     visitMinutes: number;
-    /** Idle time from "ถึงไม่ก่อนเวลา" constraints. */
+    /** Idle time from arrival times written down later than the plan reaches. */
     waitMinutes: number;
     /** Waiting reported by the provider inside transit legs, shown separately
         because it is already inside that leg's travel time. */
     transitWaitMinutes: number;
-    /** End minus start. null while any travel time is unknown. */
+    /** Last known departure minus the day's start, or null. */
     elapsedMinutes: number | null;
-    complete: boolean;
-    /** Why the day does not add up, or null when it does. */
-    blockedBy: ScheduleBlocker | null;
+    /** True while any time in the day runs backwards. */
+    hasWarning: boolean;
   };
 }
 
@@ -125,6 +122,19 @@ export function legKey(originStopId: string, destinationStopId: string): string 
   return `${originStopId}->${destinationStopId}`;
 }
 
+/**
+ * The plan's timeline.
+ *
+ * A time is either written down or worked out from the one before it, and
+ * nothing is invented. Where neither is possible the time is simply unknown —
+ * it is not an error, it does not spread to the stops below it, and it is not
+ * worth a sentence on every card. A place with an arrival time of its own does
+ * not care what came before it at all, which is what makes a plan editable in
+ * any order rather than only from the top.
+ *
+ * The one thing worth saying out loud is a time that runs backwards, and that
+ * can only ever come from a time somebody typed.
+ */
 export function computeDaySchedule(input: ScheduleInput): DaySchedule {
   const enabled = input.stops.filter((stop) => stop.enabled);
 
@@ -135,105 +145,97 @@ export function computeDaySchedule(input: ScheduleInput): DaySchedule {
   let visitTotal = 0;
   let waitTotal = 0;
   let transitWaitTotal = 0;
+  let hasWarning = false;
 
-  // Becomes true at the first unknown travel time and never resets: everything
-  // after it is genuinely unknowable, and assuming zero would be a lie.
-  let incomplete = false;
-  // The input that made it true, kept so the answer is "ยังไม่รู้เวลาเดินทาง
-  // จาก Furano station" rather than "ยังคำนวณไม่ได้".
-  let blocker: ScheduleBlocker | null = null;
   let previousDeparture: number | null = null;
 
   for (const [index, stop] of enabled.entries()) {
+    let travelMinutes: number | null = null;
+
     if (index > 0) {
       const origin = enabled[index - 1];
       const key = legKey(origin.id, stop.id);
       const travel = input.travelByLegKey[key] ?? { minutes: null, source: 'unknown' as const };
       const transitWait = travel.transitWaitMinutes ?? 0;
+      travelMinutes = travel.minutes;
 
-      const legIncomplete = incomplete || travel.minutes === null;
-      const legBlocker: ScheduleBlocker | null = incomplete
-        ? blocker
-        : travel.minutes === null
-          ? { reason: 'travel', fromStopId: origin.id }
+      const legArrival =
+        previousDeparture !== null && travel.minutes !== null
+          ? previousDeparture + travel.minutes
           : null;
-      const departure: number | null = incomplete ? null : previousDeparture;
-      const arrival: number | null =
-        departure !== null && travel.minutes !== null ? departure + travel.minutes : null;
 
       legs.push({
         legKey: key,
         originStopId: origin.id,
         destinationStopId: stop.id,
-        departureMinutes: departure,
-        arrivalMinutes: arrival,
+        departureMinutes: previousDeparture,
+        arrivalMinutes: legArrival,
         travelMinutes: travel.minutes,
         source: travel.source,
         transitWaitMinutes: transitWait,
-        incomplete: legIncomplete,
-        blockedBy: legBlocker,
       });
 
       if (travel.minutes !== null) {
         travelTotal += travel.minutes;
         transitWaitTotal += transitWait;
       }
-      if (travel.minutes === null) {
-        incomplete = true;
-        blocker ??= { reason: 'travel', fromStopId: origin.id };
-      }
-      previousDeparture = arrival;
     }
 
-    const arrival: number | null = index === 0 ? input.startMinutes : previousDeparture;
+    // Where the plan reaches this place on its own, if it can.
+    const reached: number | null =
+      index === 0
+        ? input.startMinutes
+        : previousDeparture !== null && travelMinutes !== null
+          ? previousDeparture + travelMinutes
+          : null;
 
-    if (incomplete || arrival === null) {
-      stops.push({
-        stopId: stop.id,
-        arrivalMinutes: null,
-        departureMinutes: null,
-        waitMinutes: 0,
-        visitMinutes: stop.visitMinutes,
-        incomplete: true,
-        blockedBy: blocker,
-      });
-      if (stop.visitMinutes !== null) visitTotal += stop.visitMinutes;
-      previousDeparture = null;
-      continue;
-    }
+    const arrival: number | null = stop.arrivalMinutes ?? reached;
+    const arrivalSource: TimeSource | null =
+      stop.arrivalMinutes !== null ? 'stated' : reached !== null ? 'derived' : null;
 
-    // "ถึงไม่ก่อนเวลา": arriving early turns into waiting, not an early start.
-    const wait: number =
-      stop.notBeforeMinutes !== null && arrival < stop.notBeforeMinutes
-        ? stop.notBeforeMinutes - arrival
+    // Getting there before the time written down is waiting, not an early start.
+    const wait =
+      stop.arrivalMinutes !== null && reached !== null && stop.arrivalMinutes > reached
+        ? stop.arrivalMinutes - reached
         : 0;
-    // No visit duration means no known departure — and so no known arrival at
-    // anything after it. Treating "ไม่ระบุ" as zero would invent a timeline.
-    const departure: number | null =
-      stop.visitMinutes === null ? null : arrival + wait + stop.visitMinutes;
+
+    const stayedUntil: number | null =
+      arrival !== null && stop.visitMinutes !== null ? arrival + stop.visitMinutes : null;
+
+    const departure: number | null = stop.departureMinutes ?? stayedUntil;
+    const departureSource: TimeSource | null =
+      stop.departureMinutes !== null ? 'stated' : stayedUntil !== null ? 'derived' : null;
+
+    let warning: ScheduleWarning | null = null;
+    if (arrival !== null && departure !== null && departure < arrival) {
+      warning = { reason: 'departure_before_arrival' };
+    } else if (arrival !== null && previousDeparture !== null && arrival < previousDeparture) {
+      warning = { reason: 'arrival_before_previous_departure' };
+    }
+    if (warning) hasWarning = true;
 
     stops.push({
       stopId: stop.id,
       arrivalMinutes: arrival,
       departureMinutes: departure,
+      arrivalSource,
+      departureSource,
       waitMinutes: wait,
       visitMinutes: stop.visitMinutes,
-      incomplete: false,
-      // The arrival is known; only the departure is not, and this says why.
-      blockedBy: departure === null ? { reason: 'visit', stopId: stop.id } : null,
+      warning,
     });
 
     if (stop.visitMinutes !== null) visitTotal += stop.visitMinutes;
     waitTotal += wait;
-    if (departure === null) {
-      incomplete = true;
-      blocker ??= { reason: 'visit', stopId: stop.id };
-    }
     previousDeparture = departure;
   }
 
-  const lastStop = stops[stops.length - 1];
-  const endMinutes = lastStop && !lastStop.incomplete ? lastStop.departureMinutes : null;
+  // The last time the day is known to reach, wherever that is.
+  let endMinutes: number | null = null;
+  for (const entry of stops) {
+    if (entry.departureMinutes !== null) endMinutes = entry.departureMinutes;
+    else if (entry.arrivalMinutes !== null) endMinutes = entry.arrivalMinutes;
+  }
 
   return {
     startMinutes: input.startMinutes,
@@ -246,11 +248,15 @@ export function computeDaySchedule(input: ScheduleInput): DaySchedule {
       waitMinutes: waitTotal,
       transitWaitMinutes: transitWaitTotal,
       elapsedMinutes: endMinutes === null ? null : endMinutes - input.startMinutes,
-      complete: !incomplete,
-      blockedBy: incomplete ? blocker : null,
+      hasWarning,
     },
   };
 }
+
+export const SCHEDULE_WARNINGS: Record<ScheduleWarning['reason'], string> = {
+  departure_before_arrival: 'เวลาออกอยู่ก่อนเวลาถึง',
+  arrival_before_previous_departure: 'เวลาถึงอยู่ก่อนเวลาออกของจุดก่อนหน้า',
+};
 
 // ---------------------------------------------------------------------------
 // formatting

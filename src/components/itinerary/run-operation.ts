@@ -47,7 +47,8 @@ export function runOperation(
         placeProvider: operation.stop.placeProvider,
         placeId: operation.stop.placeId,
         visitDurationMinutes: operation.stop.visitDurationMinutes,
-        notBeforeLocalTime: operation.stop.notBeforeLocalTime,
+        arrivalLocalTime: operation.stop.arrivalLocalTime,
+        departureLocalTime: operation.stop.departureLocalTime,
         expectedVersion: version,
       });
 

@@ -17,11 +17,20 @@ const NINE_AM = 9 * 60;
 
 function stop(
   id: string,
-  visitMinutes: number,
+  visitMinutes: number | null,
   extra: Partial<ScheduleStopInput> = {},
 ): ScheduleStopInput {
-  return { id, visitMinutes, notBeforeMinutes: null, enabled: true, ...extra };
+  return {
+    id,
+    visitMinutes,
+    arrivalMinutes: null,
+    departureMinutes: null,
+    enabled: true,
+    ...extra,
+  };
 }
+
+const at = (clock: string) => parseLocalTime(clock)!;
 
 function travel(pairs: Array<[string, string, number | null, LegTravel['source']?]>) {
   const map: Record<string, LegTravel> = {};
@@ -33,191 +42,6 @@ function travel(pairs: Array<[string, string, number | null, LegTravel['source']
   }
   return map;
 }
-
-describe('sequential timing', () => {
-  it('walks arrival, departure and travel through the day', () => {
-    const schedule = computeDaySchedule({
-      startMinutes: NINE_AM,
-      stops: [stop('a', 60), stop('b', 30), stop('c', 45)],
-      travelByLegKey: travel([
-        ['a', 'b', 20],
-        ['b', 'c', 15],
-      ]),
-    });
-
-    expect(schedule.stops.map((s) => [formatClock(s.arrivalMinutes), formatClock(s.departureMinutes)])).toEqual([
-      ['09:00', '10:00'],
-      ['10:20', '10:50'],
-      ['11:05', '11:50'],
-    ]);
-    expect(formatClock(schedule.endMinutes)).toBe('11:50');
-    expect(schedule.totals).toMatchObject({
-      travelMinutes: 35,
-      visitMinutes: 135,
-      waitMinutes: 0,
-      elapsedMinutes: 170,
-      complete: true,
-    });
-  });
-
-  it('handles a day with zero or one enabled stop', () => {
-    const empty = computeDaySchedule({ startMinutes: NINE_AM, stops: [], travelByLegKey: {} });
-    expect(empty.stops).toEqual([]);
-    expect(empty.legs).toEqual([]);
-    expect(empty.endMinutes).toBeNull();
-    expect(empty.totals.complete).toBe(true);
-
-    const single = computeDaySchedule({
-      startMinutes: NINE_AM,
-      stops: [stop('a', 90)],
-      travelByLegKey: {},
-    });
-    expect(single.legs).toEqual([]);
-    expect(formatClock(single.endMinutes)).toBe('10:30');
-    expect(single.totals.elapsedMinutes).toBe(90);
-  });
-
-  it('crosses midnight without wrapping the clock', () => {
-    const schedule = computeDaySchedule({
-      startMinutes: 22 * 60,
-      stops: [stop('a', 120), stop('b', 90)],
-      travelByLegKey: travel([['a', 'b', 45]]),
-    });
-
-    expect(formatClock(schedule.stops[1].arrivalMinutes)).toBe('00:45 (+1)');
-    expect(formatClock(schedule.endMinutes)).toBe('02:15 (+1)');
-    expect(schedule.totals.elapsedMinutes).toBe(255);
-    expect(splitClock(schedule.endMinutes!).dayOffset).toBe(1);
-  });
-});
-
-describe('disabled stops', () => {
-  it('routes A to C directly when B is disabled', () => {
-    const stops = [stop('a', 60), stop('b', 30, { enabled: false }), stop('c', 45)];
-    const schedule = computeDaySchedule({
-      startMinutes: NINE_AM,
-      stops,
-      travelByLegKey: travel([['a', 'c', 50]]),
-    });
-
-    expect(schedule.stops.map((s) => s.stopId)).toEqual(['a', 'c']);
-    expect(schedule.legs.map((l) => l.legKey)).toEqual([legKey('a', 'c')]);
-    expect(formatClock(schedule.stops[1].arrivalMinutes)).toBe('10:50');
-    // B's own visit time is excluded from the plan entirely.
-    expect(schedule.totals.visitMinutes).toBe(105);
-  });
-
-  it('re-enabling B restores the original plan', () => {
-    const withB = [stop('a', 60), stop('b', 30), stop('c', 45)];
-    const schedule = computeDaySchedule({
-      startMinutes: NINE_AM,
-      stops: withB,
-      travelByLegKey: travel([
-        ['a', 'b', 20],
-        ['b', 'c', 15],
-      ]),
-    });
-    expect(schedule.stops.map((s) => s.stopId)).toEqual(['a', 'b', 'c']);
-    expect(formatClock(schedule.endMinutes)).toBe('11:50');
-  });
-});
-
-describe('unknown travel time', () => {
-  it('never assumes zero and marks everything downstream incomplete', () => {
-    const schedule = computeDaySchedule({
-      startMinutes: NINE_AM,
-      stops: [stop('a', 60), stop('b', 30), stop('c', 45)],
-      travelByLegKey: travel([
-        ['a', 'b', null],
-        ['b', 'c', 15],
-      ]),
-    });
-
-    expect(formatClock(schedule.stops[0].departureMinutes)).toBe('10:00');
-    expect(schedule.stops[1].incomplete).toBe(true);
-    expect(schedule.stops[1].arrivalMinutes).toBeNull();
-    expect(schedule.stops[2].incomplete).toBe(true);
-    expect(schedule.endMinutes).toBeNull();
-    expect(schedule.totals.elapsedMinutes).toBeNull();
-    expect(schedule.totals.complete).toBe(false);
-  });
-
-  it('accepts a manual duration as a real answer', () => {
-    const schedule = computeDaySchedule({
-      startMinutes: NINE_AM,
-      stops: [stop('a', 60), stop('b', 30)],
-      travelByLegKey: travel([['a', 'b', 25, 'manual']]),
-    });
-
-    expect(schedule.legs[0].source).toBe('manual');
-    expect(formatClock(schedule.stops[1].arrivalMinutes)).toBe('10:25');
-    expect(schedule.totals.complete).toBe(true);
-  });
-
-  it('treats a missing leg entry as unknown, not as zero', () => {
-    const schedule = computeDaySchedule({
-      startMinutes: NINE_AM,
-      stops: [stop('a', 60), stop('b', 30)],
-      travelByLegKey: {},
-    });
-    expect(schedule.legs[0].source).toBe('unknown');
-    expect(schedule.stops[1].arrivalMinutes).toBeNull();
-  });
-});
-
-describe('"ถึงไม่ก่อนเวลา"', () => {
-  it('turns an early arrival into waiting and pushes the rest along', () => {
-    const schedule = computeDaySchedule({
-      startMinutes: NINE_AM,
-      stops: [
-        stop('a', 30),
-        stop('b', 60, { notBeforeMinutes: 11 * 60 }),
-        stop('c', 30),
-      ],
-      travelByLegKey: travel([
-        ['a', 'b', 15],
-        ['b', 'c', 10],
-      ]),
-    });
-
-    // Arrives 09:45 but may not start before 11:00.
-    expect(formatClock(schedule.stops[1].arrivalMinutes)).toBe('09:45');
-    expect(schedule.stops[1].waitMinutes).toBe(75);
-    expect(formatClock(schedule.stops[1].departureMinutes)).toBe('12:00');
-    expect(formatClock(schedule.stops[2].arrivalMinutes)).toBe('12:10');
-    expect(schedule.totals.waitMinutes).toBe(75);
-  });
-
-  it('adds no waiting when the constraint is already satisfied', () => {
-    const schedule = computeDaySchedule({
-      startMinutes: NINE_AM,
-      stops: [stop('a', 30), stop('b', 60, { notBeforeMinutes: 9 * 60 })],
-      travelByLegKey: travel([['a', 'b', 15]]),
-    });
-    expect(schedule.stops[1].waitMinutes).toBe(0);
-  });
-});
-
-describe('mixed modes and provider waiting', () => {
-  it('carries each leg its own mode and reports transit waiting separately', () => {
-    const schedule = computeDaySchedule({
-      startMinutes: NINE_AM,
-      stops: [stop('hotel', 0), stop('cafe', 45), stop('museum', 90), stop('dinner', 60)],
-      travelByLegKey: {
-        [legKey('hotel', 'cafe')]: { minutes: 12, source: 'provider' },
-        [legKey('cafe', 'museum')]: { minutes: 34, source: 'provider', transitWaitMinutes: 7 },
-        [legKey('museum', 'dinner')]: { minutes: 18, source: 'provider' },
-      },
-    });
-
-    expect(schedule.totals.travelMinutes).toBe(64);
-    // Provider waiting sits inside that 34 minutes, so it is reported apart
-    // from the timeline rather than added to it.
-    expect(schedule.totals.transitWaitMinutes).toBe(7);
-    expect(schedule.totals.waitMinutes).toBe(0);
-    expect(schedule.totals.elapsedMinutes).toBe(259);
-  });
-});
 
 describe('formatting', () => {
   it('formats clocks and durations in Thai', () => {
@@ -261,107 +85,276 @@ describe('transport modes', () => {
   });
 });
 
-describe('an unspecified visit duration', () => {
-  const stops: ScheduleStopInput[] = [
-    { id: 'a', visitMinutes: 30, notBeforeMinutes: null, enabled: true },
-    { id: 'b', visitMinutes: null, notBeforeMinutes: null, enabled: true },
-    { id: 'c', visitMinutes: 45, notBeforeMinutes: null, enabled: true },
-  ];
-  const travel: Record<string, LegTravel> = {
-    [legKey('a', 'b')]: { minutes: 20, source: 'manual' },
-    [legKey('b', 'c')]: { minutes: 15, source: 'manual' },
-  };
 
-  it('still knows when you arrive there', () => {
-    const schedule = computeDaySchedule({ startMinutes: NINE_AM, stops, travelByLegKey: travel });
-    expect(formatClock(schedule.stops[1].arrivalMinutes)).toBe('09:50');
-  });
+const byId = (schedule: ReturnType<typeof computeDaySchedule>) =>
+  new Map(schedule.stops.map((entry) => [entry.stopId, entry]));
 
-  it('refuses to guess when you leave, or anything after that', () => {
-    const schedule = computeDaySchedule({ startMinutes: NINE_AM, stops, travelByLegKey: travel });
-
-    expect(schedule.stops[1].departureMinutes).toBeNull();
-    expect(schedule.stops[2].arrivalMinutes).toBeNull();
-    expect(schedule.endMinutes).toBeNull();
-    expect(schedule.totals.elapsedMinutes).toBeNull();
-    expect(schedule.totals.complete).toBe(false);
-  });
-
-  it('leaves it out of the visit total rather than counting it as zero', () => {
-    const schedule = computeDaySchedule({ startMinutes: NINE_AM, stops, travelByLegKey: travel });
-    expect(schedule.totals.visitMinutes).toBe(75);
-    expect(schedule.stops[1].visitMinutes).toBeNull();
-  });
-
-  it('completes the day again once the duration is filled in', () => {
-    const schedule = computeDaySchedule({
-      startMinutes: NINE_AM,
-      stops: stops.map((stop) => (stop.id === 'b' ? { ...stop, visitMinutes: 60 } : stop)),
-      travelByLegKey: travel,
-    });
-
-    expect(schedule.totals.complete).toBe(true);
-    expect(formatClock(schedule.endMinutes)).toBe('11:50');
-  });
-});
-
-describe('the plan says which answer it is waiting for', () => {
-  it('names the journey whose travel time is missing', () => {
+describe('what the plan can work out on its own', () => {
+  it('walks the day forwards while every piece is there', () => {
     const schedule = computeDaySchedule({
       startMinutes: NINE_AM,
       stops: [stop('a', 30), stop('b', 45), stop('c', 60)],
       travelByLegKey: travel([
-        ['a', 'b', null],
-        ['b', 'c', 20],
+        ['a', 'b', 20],
+        ['b', 'c', 15],
       ]),
     });
 
-    const byId = new Map(schedule.stops.map((entry) => [entry.stopId, entry]));
-    expect(byId.get('a')?.blockedBy).toBeNull();
-    expect(byId.get('b')?.blockedBy).toEqual({ reason: 'travel', fromStopId: 'a' });
-    // The reason carries forward: everything after the gap waits on the same answer.
-    expect(byId.get('c')?.blockedBy).toEqual({ reason: 'travel', fromStopId: 'a' });
-    expect(schedule.totals.blockedBy).toEqual({ reason: 'travel', fromStopId: 'a' });
+    const stops = byId(schedule);
+    expect(formatClock(stops.get('a')!.arrivalMinutes)).toBe('09:00');
+    expect(formatClock(stops.get('a')!.departureMinutes)).toBe('09:30');
+    expect(formatClock(stops.get('b')!.arrivalMinutes)).toBe('09:50');
+    expect(formatClock(stops.get('c')!.arrivalMinutes)).toBe('10:50');
+    expect(schedule.totals.travelMinutes).toBe(35);
+    expect(schedule.totals.hasWarning).toBe(false);
+    expect(stops.get('c')!.arrivalSource).toBe('derived');
   });
 
-  it('names the place with no visit duration', () => {
+  it('crosses midnight without wrapping the clock', () => {
     const schedule = computeDaySchedule({
-      startMinutes: NINE_AM,
-      stops: [stop('a', 0, { visitMinutes: null }), stop('b', 45)],
-      travelByLegKey: travel([['a', 'b', 15]]),
+      startMinutes: 22 * 60,
+      stops: [stop('a', 120), stop('b', 90)],
+      travelByLegKey: travel([['a', 'b', 60]]),
     });
 
-    const byId = new Map(schedule.stops.map((entry) => [entry.stopId, entry]));
-    // The arrival is known — only the departure is not, and that is what it says.
-    expect(byId.get('a')?.arrivalMinutes).toBe(NINE_AM);
-    expect(byId.get('a')?.incomplete).toBe(false);
-    expect(byId.get('a')?.blockedBy).toEqual({ reason: 'visit', stopId: 'a' });
-    expect(byId.get('b')?.blockedBy).toEqual({ reason: 'visit', stopId: 'a' });
-    expect(schedule.totals.blockedBy).toEqual({ reason: 'visit', stopId: 'a' });
+    expect(formatClock(schedule.stops[1].arrivalMinutes)).toBe('01:00 (+1)');
+    expect(splitClock(schedule.endMinutes!).dayOffset).toBe(1);
   });
+});
 
-  it('reports the first missing answer, not the last', () => {
+describe('a gap stops at the gap', () => {
+  it('leaves the time blank instead of spreading the gap down the list', () => {
     const schedule = computeDaySchedule({
       startMinutes: NINE_AM,
-      stops: [stop('a', 0, { visitMinutes: null }), stop('b', 30), stop('c', 30)],
+      stops: [stop('a', null), stop('b', 45), stop('c', 60)],
       travelByLegKey: travel([
-        ['a', 'b', 15],
-        ['b', 'c', null],
+        ['a', 'b', 20],
+        ['b', 'c', 15],
       ]),
     });
 
-    expect(schedule.totals.blockedBy).toEqual({ reason: 'visit', stopId: 'a' });
+    const stops = byId(schedule);
+    // Nobody said how long to stay at A, so there is no departure. That is all
+    // it means: no complaint, and nothing to say about it on every card below.
+    expect(formatClock(stops.get('a')!.arrivalMinutes)).toBe('09:00');
+    expect(stops.get('a')!.departureMinutes).toBeNull();
+    expect(stops.get('b')!.arrivalMinutes).toBeNull();
+    expect(schedule.totals.hasWarning).toBe(false);
+    expect(schedule.stops.every((entry) => entry.warning === null)).toBe(true);
   });
 
-  it('says nothing is missing when the day adds up', () => {
+  it('picks the day back up at the next place that says a time', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [
+        stop('a', null),
+        stop('b', 45, { arrivalMinutes: at('13:00') }),
+        stop('c', 60),
+      ],
+      travelByLegKey: travel([
+        ['a', 'b', null],
+        ['b', 'c', 15],
+      ]),
+    });
+
+    const stops = byId(schedule);
+    expect(stops.get('a')!.departureMinutes).toBeNull();
+    // B owes nothing to what came before it.
+    expect(formatClock(stops.get('b')!.arrivalMinutes)).toBe('13:00');
+    expect(stops.get('b')!.arrivalSource).toBe('stated');
+    expect(formatClock(stops.get('b')!.departureMinutes)).toBe('13:45');
+    // And the day runs on from there.
+    expect(formatClock(stops.get('c')!.arrivalMinutes)).toBe('14:00');
+    expect(schedule.totals.hasWarning).toBe(false);
+  });
+
+  it('never assumes a missing travel time is zero', () => {
     const schedule = computeDaySchedule({
       startMinutes: NINE_AM,
       stops: [stop('a', 30), stop('b', 45)],
+      travelByLegKey: travel([['a', 'b', null]]),
+    });
+
+    expect(formatClock(schedule.stops[0].departureMinutes)).toBe('09:30');
+    expect(schedule.stops[1].arrivalMinutes).toBeNull();
+    expect(schedule.totals.travelMinutes).toBe(0);
+  });
+});
+
+describe('times written down by hand', () => {
+  it('takes a departure as given, whatever the visit duration says', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', 30, { departureMinutes: at('11:00') }), stop('b', 45)],
       travelByLegKey: travel([['a', 'b', 20]]),
     });
 
-    expect(schedule.totals.complete).toBe(true);
-    expect(schedule.totals.blockedBy).toBeNull();
-    expect(schedule.stops.every((entry) => entry.blockedBy === null)).toBe(true);
+    const stops = byId(schedule);
+    expect(formatClock(stops.get('a')!.departureMinutes)).toBe('11:00');
+    expect(stops.get('a')!.departureSource).toBe('stated');
+    expect(formatClock(stops.get('b')!.arrivalMinutes)).toBe('11:20');
+  });
+
+  it('lets a place be timed with nothing but its own two times', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [
+        stop('a', null),
+        stop('b', null, { arrivalMinutes: at('14:00'), departureMinutes: at('16:30') }),
+      ],
+      travelByLegKey: travel([['a', 'b', null]]),
+    });
+
+    const entry = byId(schedule).get('b')!;
+    expect(formatClock(entry.arrivalMinutes)).toBe('14:00');
+    expect(formatClock(entry.departureMinutes)).toBe('16:30');
+    expect(entry.warning).toBeNull();
+  });
+
+  it('counts getting there early as waiting', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', 30), stop('b', 45, { arrivalMinutes: at('11:00') })],
+      travelByLegKey: travel([['a', 'b', 20]]),
+    });
+
+    const entry = byId(schedule).get('b')!;
+    // Reached at 09:50, written down as 11:00.
+    expect(entry.waitMinutes).toBe(70);
+    expect(schedule.totals.waitMinutes).toBe(70);
+    expect(formatClock(entry.departureMinutes)).toBe('11:45');
+  });
+
+  it('adds no waiting when the plan arrives after the time written down', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', 120), stop('b', 45, { arrivalMinutes: at('10:00') })],
+      travelByLegKey: travel([['a', 'b', 20]]),
+    });
+
+    const entry = byId(schedule).get('b')!;
+    expect(entry.waitMinutes).toBe(0);
+    // The time written down wins: it is a fact, not a floor.
+    expect(formatClock(entry.arrivalMinutes)).toBe('10:00');
+    expect(entry.warning).toEqual({ reason: 'arrival_before_previous_departure' });
+  });
+});
+
+describe('a warning, and only when the clock runs backwards', () => {
+  it('flags leaving before arriving', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', null, { arrivalMinutes: at('14:00'), departureMinutes: at('11:00') })],
+      travelByLegKey: {},
+    });
+
+    expect(schedule.stops[0].warning).toEqual({ reason: 'departure_before_arrival' });
+    expect(schedule.totals.hasWarning).toBe(true);
+  });
+
+  it('flags arriving before leaving the place before it', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [
+        stop('a', null, { arrivalMinutes: at('09:00'), departureMinutes: at('15:00') }),
+        stop('b', null, { arrivalMinutes: at('12:00') }),
+      ],
+      travelByLegKey: travel([['a', 'b', null]]),
+    });
+
+    expect(schedule.stops[0].warning).toBeNull();
+    expect(schedule.stops[1].warning).toEqual({ reason: 'arrival_before_previous_departure' });
+  });
+
+  it('says nothing about a day that is merely unfinished', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', null), stop('b', null), stop('c', null)],
+      travelByLegKey: {},
+    });
+
+    expect(schedule.stops.every((entry) => entry.warning === null)).toBe(true);
+    expect(schedule.totals.hasWarning).toBe(false);
+  });
+
+  it('cannot be raised by a time the plan worked out itself', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', 30), stop('b', 45), stop('c', 60)],
+      travelByLegKey: travel([
+        ['a', 'b', 20],
+        ['b', 'c', 15],
+      ]),
+    });
+
+    expect(schedule.totals.hasWarning).toBe(false);
+  });
+});
+
+describe('disabled stops', () => {
+  it('routes A to C directly when B is disabled, and back again when it returns', () => {
+    const withB = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', 30), stop('b', 45, { enabled: false }), stop('c', 60)],
+      travelByLegKey: travel([
+        ['a', 'c', 50],
+        ['a', 'b', 20],
+        ['b', 'c', 15],
+      ]),
+    });
+    expect(withB.stops).toHaveLength(2);
+    expect(formatClock(withB.stops[1].arrivalMinutes)).toBe('10:20');
+
+    const restored = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', 30), stop('b', 45), stop('c', 60)],
+      travelByLegKey: travel([
+        ['a', 'c', 50],
+        ['a', 'b', 20],
+        ['b', 'c', 15],
+      ]),
+    });
+    expect(restored.stops).toHaveLength(3);
+    expect(formatClock(restored.stops[2].arrivalMinutes)).toBe('10:50');
+  });
+});
+
+describe('the day in total', () => {
+  it('ends at the last time it knows, not at the last stop', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', 30), stop('b', 45), stop('c', null)],
+      travelByLegKey: travel([
+        ['a', 'b', 20],
+        ['b', 'c', 15],
+      ]),
+    });
+
+    // C has no duration, so no departure — the day is known up to arriving there.
+    expect(formatClock(schedule.endMinutes)).toBe('10:50');
+    expect(schedule.totals.elapsedMinutes).toBe(110);
+  });
+
+  it('leaves the visit total out rather than counting an unanswered stay as zero', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', 30), stop('b', null)],
+      travelByLegKey: travel([['a', 'b', 20]]),
+    });
+
+    expect(schedule.totals.visitMinutes).toBe(30);
+  });
+
+  it('reports provider waiting separately from its own', () => {
+    const schedule = computeDaySchedule({
+      startMinutes: NINE_AM,
+      stops: [stop('a', 30), stop('b', 45)],
+      travelByLegKey: {
+        [legKey('a', 'b')]: { minutes: 40, source: 'provider', transitWaitMinutes: 12 },
+      },
+    });
+
+    expect(schedule.totals.transitWaitMinutes).toBe(12);
+    expect(schedule.totals.travelMinutes).toBe(40);
   });
 });

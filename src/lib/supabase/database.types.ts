@@ -131,6 +131,8 @@ export type ItineraryStopRow = {
   /** null when "อยู่ที่นี่นานเท่าไร" was left unanswered. */
   visit_duration_minutes: number | null;
   not_before_local_time: string | null;
+  arrival_local_time: string | null;
+  departure_local_time: string | null;
   enabled: boolean;
   notes: string | null;
   created_by: string | null;
@@ -355,7 +357,8 @@ export type Database = {
           p_place_provider?: string;
           p_place_id?: string | null;
           p_visit_duration_minutes?: number | null;
-          p_not_before_local_time?: string | null;
+          p_arrival_local_time?: string | null;
+          p_departure_local_time?: string | null;
           p_expected_version?: number | null;
         };
         Returns: number;
@@ -367,7 +370,8 @@ export type Database = {
           p_name: string;
           p_notes: string | null;
           p_visit_duration_minutes: number | null;
-          p_not_before_local_time: string | null;
+          p_arrival_local_time: string | null;
+          p_departure_local_time: string | null;
           p_enabled: boolean;
           p_leg_destination_stop_id?: string | null;
           p_leg_transport_mode?: TransportModeDb | null;

@@ -23,7 +23,8 @@ export interface StopValues {
   name: string;
   notes: string | null;
   visitDurationMinutes: number | null;
-  notBeforeLocalTime: string | null;
+  arrivalLocalTime: string | null;
+  departureLocalTime: string | null;
   enabled: boolean;
 }
 
