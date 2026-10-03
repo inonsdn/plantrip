@@ -22,8 +22,16 @@ export const TIME_ZONES = [
   { value: 'UTC', label: 'UTC' },
 ];
 
-export function timeZoneLabel(zone: string): string {
-  return TIME_ZONES.find((candidate) => candidate.value === zone)?.label ?? zone;
+/**
+ * `Asia/Tokyo` -> `เวลาญี่ปุ่น`. For the summary line, where the IANA name is
+ * noise; a zone that is not in the list keeps its id rather than being renamed
+ * into something that only looks right.
+ */
+export function timeZoneShortLabel(zone: string): string {
+  const entry = TIME_ZONES.find((candidate) => candidate.value === zone);
+  if (!entry) return zone;
+  const name = entry.label.replace(/\s*\(.*\)\s*$/, '');
+  return name === 'UTC' ? 'UTC' : `เวลา${name}`;
 }
 
 export interface DayDraft {

@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+# Vitest writes a screenshot here every time a browser test fails.
+/.vitest/
 
 # next.js
 /.next/

@@ -113,6 +113,11 @@ export function ShareLinkDialog({
   );
 }
 
+/**
+ * Opens the invite link. Named for what it does rather than "แชร์": the plan
+ * can now be shared as a picture too, and the one that lets a stranger into the
+ * trip is not the one anybody should reach for by accident.
+ */
 export function ShareLinkButton({
   onClick,
   compact = false,
@@ -129,11 +134,11 @@ export function ShareLinkButton({
       variant="secondary"
       size={compact ? 'sm' : 'md'}
       onClick={onClick}
-      title={iconOnly ? 'แชร์ลิงก์' : undefined}
-      className={iconOnly ? 'w-11 px-0' : ''}
+      title={iconOnly ? 'ลิงก์เชิญเข้าทริป' : undefined}
+      className={iconOnly ? 'w-11 shrink-0 px-0' : ''}
     >
       <Link2 aria-hidden className="size-4" />
-      <span className={iconOnly ? 'sr-only' : ''}>แชร์ลิงก์</span>
+      <span className={iconOnly ? 'sr-only' : ''}>ลิงก์เชิญ</span>
     </Button>
   );
 }

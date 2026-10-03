@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, MapPin, MoonStar, Pencil, Plus } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { CalendarDays, MapPin, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/states';
 import { useToast } from '@/components/ui/toast';
@@ -13,20 +13,20 @@ import type { ItineraryStopView } from '@/lib/itinerary/types';
 import { uuid } from '@/lib/uuid';
 import {
   computeDaySchedule,
-  formatClock,
-  formatDuration,
   legKey as makeLegKey,
   parseLocalTime,
-  splitClock,
   type LegTravel,
 } from '@/lib/itinerary/schedule';
+import { describeDay, stopTimeLines, travelLines } from '@/lib/itinerary/timeline';
 import type { RouteAlternative } from '@/lib/itinerary/providers/types';
 import type { SharePlanInput } from '@/lib/itinerary/share-plan';
 import type { ItineraryDayView } from '@/lib/itinerary/types';
 import { AddStopForm, type NewStopInput } from './add-stop';
-import { DayDialog, timeZoneLabel, type DayDraft } from './day-dialog';
+import { DayDialog, timeZoneShortLabel, type DayDraft } from './day-dialog';
+import { DayStrip } from './day-strip';
+import { DaySummaryBar } from './day-summary-bar';
 import { SharePlanButton } from './share-plan-button';
-import { StopCard } from './stop-card';
+import { StopRow, TravelRow } from './stop-row';
 import { StopDialog, type LegDraft, type StopDraft } from './stop-dialog';
 import { useItineraryQueue } from './use-itinerary-queue';
 import { useLegRoutes, type LegRouteRequest } from './use-routing';
@@ -198,6 +198,15 @@ export function ItineraryPlanner({
     [schedule.stops],
   );
 
+  // What each row says, decided in one place so the list cannot contradict the
+  // summary above it or repeat itself down the page.
+  const lines = useMemo(() => stopTimeLines(schedule), [schedule]);
+  const travel = useMemo(() => travelLines(schedule, legs), [schedule, legs]);
+  const summary = useMemo(
+    () => describeDay(schedule, timeZoneShortLabel(day?.timeZone ?? '')),
+    [schedule, day?.timeZone],
+  );
+
   // ---------------------------------------------------------------------
   // mutations
   // ---------------------------------------------------------------------
@@ -339,6 +348,16 @@ export function ItineraryPlanner({
     [context, days, shareTravel],
   );
 
+  const stripDays = useMemo(
+    () =>
+      days.map((candidate) => ({
+        id: candidate.id,
+        localDate: candidate.localDate,
+        stopCount: candidate.stops.filter((stop) => stop.enabled).length,
+      })),
+    [days],
+  );
+
   if (days.length === 0 || !day) {
     return (
       <EmptyState
@@ -359,6 +378,14 @@ export function ItineraryPlanner({
     orderByStopId.set(stopId, candidate.enabled ? (visibleOrder += 1) : null);
   }
 
+  const rows = drag.order
+    .map((stopId) => stopById.get(stopId))
+    .filter((stop) => stop !== undefined);
+
+  // While a card is in the air the pairs are changing under it, so a journey
+  // drawn beside the wrong two places would be worse than none at all.
+  const showTravel = drag.draggingId === null;
+
   const otherDays = days
     .filter((candidate) => candidate.id !== day.id)
     .map((candidate) => ({ id: candidate.id, label: formatDateWithWeekday(candidate.localDate) }));
@@ -377,129 +404,81 @@ export function ItineraryPlanner({
       }
     : null;
 
-  const crossesMidnight =
-    schedule.endMinutes !== null && splitClock(schedule.endMinutes).dayOffset > 0;
-
   return (
     // A list reads badly at full desktop width, so it keeps a column.
-    <div className="mx-auto w-full max-w-3xl space-y-3">
-      <div className="flex justify-end">
-        <SharePlanButton input={shareInput} />
-      </div>
+    <div className="mx-auto w-full max-w-3xl">
+      <DayStrip days={stripDays} selectedId={day.id} onSelect={setSelectedDayId} />
 
-      {/* Day selector: a horizontal strip so long trips stay one row. */}
-      <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-        <ul className="flex w-max gap-2">
-          {days.map((candidate, index) => {
-            const active = candidate.id === day.id;
-            return (
-              <li key={candidate.id}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDayId(candidate.id)}
-                  aria-current={active ? 'true' : undefined}
-                  className={`inline-flex min-h-11 flex-col items-start justify-center rounded-lg border px-3 text-left ${
-                    active
-                      ? 'border-brand bg-brand-soft text-brand-strong'
-                      : 'border-line bg-surface text-ink hover:bg-canvas'
-                  }`}
-                >
-                  <span className="text-[11px] text-muted">วันที่ {index + 1}</span>
-                  <span className="text-sm font-semibold">
-                    {formatDateWithWeekday(candidate.localDate)}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-
-      {/* The day, in two lines. Everything editable is behind the dialog. */}
-      <button
-        type="button"
-        onClick={() => setDayOpen(true)}
-        className="flex w-full items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-left hover:bg-canvas/60"
-      >
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm text-ink">
-            <span className="text-muted">เริ่มวัน</span>{' '}
-            <span className="font-semibold">{formatClock(schedule.startMinutes)}</span>
-            <span className="text-muted"> · {timeZoneLabel(day.timeZone)}</span>
-          </span>
-          <span className="mt-0.5 block truncate text-xs text-ink-soft">
-            <span className="text-muted">รวมทั้งวัน</span>{' '}
-            <span className="font-medium text-ink">
-              {schedule.totals.elapsedMinutes === null
-                ? '—'
-                : formatDuration(schedule.totals.elapsedMinutes)}
-            </span>
-            <span className="text-muted"> · เดินทาง</span>{' '}
-            {formatDuration(schedule.totals.travelMinutes)}
-            <span className="text-muted"> · เที่ยว</span>{' '}
-            {formatDuration(schedule.totals.visitMinutes)}
-            {crossesMidnight ? (
-              <>
-                {' · '}
-                <MoonStar aria-hidden className="inline size-3 align-[-1px] text-brand" />{' '}
-                <span className="text-brand-strong">ข้ามเที่ยงคืน</span>
-              </>
-            ) : null}
-          </span>
-        </span>
-        <Pencil aria-hidden className="size-4 shrink-0 text-muted" />
-      </button>
-
-      {halted ? (
-        <div
-          role="alert"
-          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-negative/30 bg-negative-soft px-4 py-3"
-        >
-          <p className="text-sm leading-6 text-ink">
-            หยุดบันทึกไว้ชั่วคราว เพราะเซิร์ฟเวอร์ปฏิเสธการแก้ไขซ้ำหลายครั้ง
-            <span className="mt-0.5 block text-xs text-ink-soft">
-              การแก้ไขหลังจากนี้จะไม่ถูกบันทึกจนกว่าจะโหลดหน้านี้ใหม่
-            </span>
-          </p>
-          <Button type="button" size="sm" onClick={() => window.location.reload()}>
-            โหลดหน้าใหม่
-          </Button>
+      <div className="space-y-2 pt-3">
+        <div className="flex items-stretch gap-2">
+          <DaySummaryBar summary={summary} onEdit={() => setDayOpen(true)} />
+          <SharePlanButton input={shareInput} />
         </div>
-      ) : null}
 
+        {halted ? (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-negative/30 bg-negative-soft px-4 py-3"
+          >
+            <p className="text-sm leading-6 text-ink">
+              หยุดบันทึกไว้ชั่วคราว เพราะเซิร์ฟเวอร์ปฏิเสธการแก้ไขซ้ำหลายครั้ง
+              <span className="mt-0.5 block text-xs text-ink-soft">
+                การแก้ไขหลังจากนี้จะไม่ถูกบันทึกจนกว่าจะโหลดหน้านี้ใหม่
+              </span>
+            </p>
+            <Button type="button" size="sm" onClick={() => window.location.reload()}>
+              โหลดหน้าใหม่
+            </Button>
+          </div>
+        ) : null}
 
-      {stops.length === 0 ? (
-        <EmptyState
-          icon={<MapPin className="size-8" />}
-          title="ยังไม่มีสถานที่ในวันนี้"
-          description="กดปุ่ม เพิ่มสถานที่ มุมขวาล่าง แล้วลากการ์ดเพื่อจัดลำดับได้"
-        />
-      ) : (
-        <ol className="space-y-1.5">
-          {drag.order.map((stopId) => {
-            const stop = stopById.get(stopId);
-            if (!stop) return null;
-            return (
-              <StopCard
-                key={stop.id}
-                stop={stop}
-                order={orderByStopId.get(stop.id) ?? null}
-                timing={stopTiming.get(stop.id)}
-                onOpen={() => setEditingStopId(stop.id)}
-                onGripPointerDown={(event) => drag.start(stop.id, event)}
-                registerElement={(element) => drag.register(stop.id, element)}
-                dragging={drag.draggingId === stop.id}
-              />
-            );
-          })}
-        </ol>
-      )}
+        {rows.length === 0 ? (
+          <EmptyState
+            icon={<MapPin className="size-8" />}
+            title="ยังไม่มีสถานที่ในวันนี้"
+            description="กดปุ่ม เพิ่มสถานที่ มุมขวาล่าง แล้วลากการ์ดเพื่อจัดลำดับได้"
+          />
+        ) : (
+          <ol className="pt-1">
+            {rows.map((stop, index) => {
+              const leg = showTravel ? travel.get(stop.id) : undefined;
+              const origin = leg ? stopById.get(leg.originStopId) : undefined;
+
+              return (
+                // The journey and the place it leads to are two list items, not
+                // one nested in the other: an `li` cannot contain an `li`.
+                <Fragment key={stop.id}>
+                  {leg && origin ? (
+                    <TravelRow
+                      travel={leg}
+                      originName={origin.name}
+                      onOpen={() => setEditingStopId(leg.originStopId)}
+                    />
+                  ) : null}
+                  <StopRow
+                    stop={stop}
+                    order={orderByStopId.get(stop.id) ?? null}
+                    timing={stopTiming.get(stop.id)}
+                    line={lines.get(stop.id)}
+                    first={index === 0}
+                    last={index === rows.length - 1}
+                    onOpen={() => setEditingStopId(stop.id)}
+                    onGripPointerDown={(event) => drag.start(stop.id, event)}
+                    registerElement={(element) => drag.register(stop.id, element)}
+                    dragging={drag.draggingId === stop.id}
+                  />
+                </Fragment>
+              );
+            })}
+          </ol>
+        )}
+      </div>
 
       {/* Replaces the trip-wide add-expense button while this tab is open. */}
       <button
         type="button"
         onClick={() => setAddOpen(true)}
-        className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] right-4 z-40 inline-flex min-h-14 items-center gap-2 rounded-full bg-brand px-5 text-base font-semibold text-white shadow-lg shadow-ink/20 transition-colors hover:bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-strong sm:bottom-6"
+        className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] right-4 z-40 inline-flex min-h-12 items-center gap-1.5 rounded-full bg-brand px-4 text-sm font-semibold text-white shadow-lg shadow-ink/20 transition-colors hover:bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-strong sm:bottom-6"
       >
         <Plus aria-hidden className="size-5" />
         เพิ่มสถานที่

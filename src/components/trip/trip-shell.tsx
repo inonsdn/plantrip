@@ -113,7 +113,9 @@ export function TripShell({
         </div>
       </nav>
 
-      <main className="mx-auto w-full max-w-6xl px-4 pb-28 pt-4 sm:px-6 sm:pb-12 sm:pt-6">
+      {/* Deep enough that the floating button and the bottom bar never sit on
+          top of the last row of whatever tab is open. */}
+      <main className="mx-auto w-full max-w-6xl px-4 pb-32 pt-4 sm:px-6 sm:pb-16 sm:pt-6">
         <TripHeader />
         {children}
       </main>
@@ -123,7 +125,7 @@ export function TripShell({
         <button
           type="button"
           onClick={() => openExpense(null)}
-          className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] right-4 z-40 inline-flex min-h-14 items-center gap-2 rounded-full bg-brand px-5 text-base font-semibold text-white shadow-lg shadow-ink/20 transition-colors hover:bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-strong sm:bottom-6"
+          className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] right-4 z-40 inline-flex min-h-12 items-center gap-1.5 rounded-full bg-brand px-4 text-sm font-semibold text-white shadow-lg shadow-ink/20 transition-colors hover:bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-strong sm:bottom-6"
         >
           <Plus aria-hidden className="size-5" />
           เพิ่มค่าใช้จ่าย

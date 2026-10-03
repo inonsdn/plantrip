@@ -98,13 +98,19 @@ export function SharePlanButton({ input }: { input: SharePlanInput }) {
         size="sm"
         onClick={generate}
         disabled={working || input.days.length === 0}
+        title="แชร์แผนทั้งทริปเป็นรูป"
+        className="shrink-0"
       >
         {working ? (
           <LoaderCircle aria-hidden className="size-4 animate-spin" />
         ) : (
           <ImageIcon aria-hidden className="size-4" />
         )}
-        {working ? 'กำลังสร้างรูป…' : 'แชร์เป็นรูป'}
+        {/* The label folds away on the narrowest phones, where the row has to
+            share its width with the day summary; the name stays for a reader. */}
+        <span className="sr-only xs:not-sr-only">
+          {working ? 'กำลังสร้างรูป…' : 'แชร์เป็นรูป'}
+        </span>
       </Button>
 
       <Sheet
