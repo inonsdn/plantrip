@@ -21,9 +21,11 @@ import {
   type LegTravel,
 } from '@/lib/itinerary/schedule';
 import type { RouteAlternative } from '@/lib/itinerary/providers/types';
+import type { SharePlanInput } from '@/lib/itinerary/share-plan';
 import type { ItineraryDayView } from '@/lib/itinerary/types';
 import { AddStopForm, type NewStopInput } from './add-stop';
 import { DayDialog, timeZoneLabel, type DayDraft } from './day-dialog';
+import { SharePlanButton } from './share-plan-button';
 import { StopCard } from './stop-card';
 import { StopDialog, type LegDraft, type StopDraft } from './stop-dialog';
 import { useItineraryQueue } from './use-itinerary-queue';
@@ -41,7 +43,7 @@ export function ItineraryPlanner({
   routingConfigured: boolean;
 }) {
   const { showToast } = useToast();
-  const { openExpense, reportPendingChanges } = useTripUi();
+  const { context, openExpense, reportPendingChanges } = useTripUi();
 
   // List edits land on screen at once and are reconciled in the background;
   // the dialogs below still wait for their own confirmation.
@@ -300,6 +302,43 @@ export function ItineraryPlanner({
   const stopIds = useMemo(() => stops.map((stop) => stop.id), [stops]);
   const drag = useReorder(stopIds, reorder);
 
+  // ---------------------------------------------------------------------
+  // the shareable picture
+  // ---------------------------------------------------------------------
+
+  // It covers every day, but a provider is only asked about the day on screen.
+  // Travel times somebody typed are known for all of them, so the other days
+  // are drawn from those and leave the rest blank rather than inventing it.
+  // An orphaned preference — a pair that is no longer adjacent — is harmless
+  // here: the schedule only ever looks up the legs it builds itself.
+  const shareTravel = useMemo<Record<string, LegTravel>>(() => {
+    const table: Record<string, LegTravel> = {};
+    for (const candidate of days) {
+      for (const preference of candidate.legPreferences) {
+        if (preference.manualDurationMinutes === null) continue;
+        table[makeLegKey(preference.originStopId, preference.destinationStopId)] = {
+          minutes: preference.manualDurationMinutes,
+          source: 'manual',
+        };
+      }
+    }
+    // The open day's resolved routes win, so the picture agrees with the list.
+    return { ...table, ...travelByLegKey };
+  }, [days, travelByLegKey]);
+
+  const shareInput = useMemo<SharePlanInput>(
+    () => ({
+      tripName: context.trip.name,
+      destination: context.trip.destination,
+      startDate: context.trip.startDate,
+      endDate: context.trip.endDate,
+      memberCount: context.members.length,
+      days,
+      travelByLegKey: shareTravel,
+    }),
+    [context, days, shareTravel],
+  );
+
   if (days.length === 0 || !day) {
     return (
       <EmptyState
@@ -344,6 +383,10 @@ export function ItineraryPlanner({
   return (
     // A list reads badly at full desktop width, so it keeps a column.
     <div className="mx-auto w-full max-w-3xl space-y-3">
+      <div className="flex justify-end">
+        <SharePlanButton input={shareInput} />
+      </div>
+
       {/* Day selector: a horizontal strip so long trips stay one row. */}
       <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
         <ul className="flex w-max gap-2">

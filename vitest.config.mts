@@ -30,6 +30,7 @@ export default defineConfig({
         test: {
           name: 'browser',
           include: ['tests/browser/**/*.test.tsx'],
+          setupFiles: ['./tests/browser/setup.ts'],
           alias: { 'server-only': serverOnly },
           browser: {
             enabled: true,
